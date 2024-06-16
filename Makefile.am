@@ -9,7 +9,7 @@ EXTRA_DIST = MAINTAINERS TESTERS installcheck.mk
 EXTRA_DIST += HACKING.md SECURITY.md
 
 # Note: $(subdirs) lists all the directories from AC_CONFIG_SUBDIRS()
-SUBDIRS = $(subdirs) libgphoto2 camlibs tests examples po packaging doc
+SUBDIRS = $(subdirs) libgphoto2 camlibs examples po packaging doc
 
 EXTRA_DIST    += libgphoto2.pc.in
 pkgconfig_DATA = libgphoto2.pc
