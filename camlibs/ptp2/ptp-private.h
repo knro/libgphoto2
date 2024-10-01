@@ -25,6 +25,7 @@
 #include <gphoto2/gphoto2-library.h>
 
 #include <string.h>
+#include <sys/time.h>
 
 /* config.c */
 int camera_get_config (Camera *camera, CameraWidget **window, GPContext *context);
@@ -36,8 +37,9 @@ int camera_list_config (Camera *camera, CameraList *list, GPContext *context);
 int camera_prepare_capture (Camera *camera, GPContext *context);
 int camera_unprepare_capture (Camera *camera, GPContext *context);
 int camera_canon_eos_update_capture_target(Camera *camera, GPContext *context, int value);
-int have_prop(Camera *camera, uint16_t vendor, uint16_t prop);
+int have_prop(Camera *camera, uint16_t vendor, uint32_t prop);
 int camera_lookup_by_property(Camera *camera, PTPDevicePropDesc *dpd, char **name, char **content, GPContext *context);
+int camera_keep_device_on(Camera *camera);
 
 /* library.c */
 int translate_ptp_result (uint16_t result);
@@ -113,6 +115,8 @@ inline static int log_on_ptp_error_helper( int _r, const char* _func, const char
 	}\
 } while (0)
 
+#define ARRAYSIZE(ARRAY) (sizeof(ARRAY) / sizeof(ARRAY[0]))
+
 static inline int
 is_canon_eos_m(PTPParams *params) {
 	if (params->deviceinfo.VendorExtensionID != PTP_VENDOR_CANON) return 0;
@@ -140,7 +144,7 @@ have_eos_prop(PTPParams *params, uint16_t vendor, uint16_t prop) {
 	if ((params->deviceinfo.VendorExtensionID != PTP_VENDOR_CANON) || (vendor != PTP_VENDOR_CANON))
 		return 0;
 	for (i=0;i<params->nrofcanon_props;i++)
-		if (params->canon_props[i].proptype == prop)
+		if (params->canon_props[i].dpd.DevicePropertyCode == prop)
 			return 1;
 	return 0;
 }
@@ -153,6 +157,23 @@ have_sigma_prop(PTPParams *params, uint16_t vendor, uint16_t prop) {
 	if ((prop & 0xf000) == 0xd000)	/* we map it to vendor config space */
 		return 1;
 	return 0;
+}
+
+/* struct timeval is simply two long int values, so passing it by value is not expensive.
+ * It is most likely going to be inlined anyway and therefore 'free'. Passing it by value
+ * leads to a cleaner interface. */
+static inline struct timeval
+time_now() {
+	struct timeval curtime;
+	gettimeofday (&curtime, NULL);
+	return curtime;
+}
+
+/* return number of milliseconds since 'start' */
+static inline int
+time_since (const struct timeval start) {
+	struct timeval curtime = time_now();
+	return ((curtime.tv_sec - start.tv_sec)*1000)+((curtime.tv_usec - start.tv_usec)/1000);
 }
 
 struct _CameraPrivateLibrary {
