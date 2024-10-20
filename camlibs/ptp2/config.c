@@ -64,8 +64,8 @@ have_prop(Camera *camera, uint16_t vendor, uint32_t prop) {
 	if (	((prop & 0x7000) == 0x5000) ||
 		(NIKON_1(&camera->pl->params) && ((prop & 0xf000) == 0xf000))
 	) { /* properties */
-		for (i=0; i<camera->pl->params.deviceinfo.DevicePropertiesSupported_len; i++) {
-			if (prop != camera->pl->params.deviceinfo.DevicePropertiesSupported[i])
+		for (i=0; i<camera->pl->params.deviceinfo.DeviceProps_len; i++) {
+			if (prop != camera->pl->params.deviceinfo.DeviceProps[i])
 				continue;
 			if ((prop & 0xf000) == 0x5000) { /* generic property */
 				if (!vendor || (camera->pl->params.deviceinfo.VendorExtensionID==vendor))
@@ -76,9 +76,9 @@ have_prop(Camera *camera, uint16_t vendor, uint32_t prop) {
 		}
 	}
 	if ((prop & 0x7000) == 0x1000) { /* commands */
-		for (i=0; i<camera->pl->params.deviceinfo.OperationsSupported_len; i++) {
+		for (i=0; i<camera->pl->params.deviceinfo.Operations_len; i++) {
 
-			if (prop != camera->pl->params.deviceinfo.OperationsSupported[i])
+			if (prop != camera->pl->params.deviceinfo.Operations[i])
 				continue;
 			if ((prop & 0xf000) == 0x1000) /* generic property */
 				return 1;
@@ -175,11 +175,11 @@ return false,'already in play'\n\
 
 static int
 camera_prepare_canon_powershot_capture(Camera *camera, GPContext *context) {
-	uint16_t		ret;
-	PTPContainer		event;
-	PTPPropertyValue	propval;
-	PTPParams		*params = &camera->pl->params;
-	int 			found, oldtimeout;
+	uint16_t	ret;
+	PTPContainer	event;
+	PTPPropValue	propval;
+	PTPParams	*params = &camera->pl->params;
+	int 		found, oldtimeout;
 
 	if (ptp_property_issupported(params, PTP_DPC_CANON_FlashMode)) {
 		GP_LOG_D ("Canon capture mode is already set up.");
@@ -285,7 +285,7 @@ int
 camera_canon_eos_update_capture_target(Camera *camera, GPContext *context, int value) {
 	PTPParams		*params = &camera->pl->params;
 	char			buf[200];
-	PTPPropertyValue	ct_val;
+	PTPPropValue		ct_val;
 	PTPDevicePropDesc	dpd;
 	int			cardval = -1;
 
@@ -334,7 +334,7 @@ camera_canon_eos_update_capture_target(Camera *camera, GPContext *context, int v
 		if (ct_val.u32 == PTP_CANON_EOS_CAPTUREDEST_HD) {
 			uint16_t	ret;
 #if 0
-			int		uilocked = params->uilocked;
+			int		eos_uilocked = params->eos_uilocked;
 
 			/* if we want to download the image from the device, we need to tell the camera
 			 * that we have enough space left. */
@@ -342,12 +342,12 @@ camera_canon_eos_update_capture_target(Camera *camera, GPContext *context, int v
 			ret = ptp_canon_eos_pchddcapacity(params, 0x7fffffff, 0x00001000, 0x00000001);
 			 */
 
-			if (!uilocked)
+			if (!eos_uilocked)
 				LOG_ON_PTP_E (ptp_canon_eos_setuilock (params));
 #endif
 			ret = ptp_canon_eos_pchddcapacity(params, 0x0fffffff, 0x00001000, 0x00000001);
 #if 0
-			if (!uilocked)
+			if (!eos_uilocked)
 				LOG_ON_PTP_E (ptp_canon_eos_resetuilock (params));
 #endif
 			/* not so bad if its just busy, would also fail later. */
@@ -372,7 +372,6 @@ camera_canon_eos_update_capture_target(Camera *camera, GPContext *context, int v
 static int
 camera_prepare_canon_eos_capture(Camera *camera, GPContext *context) {
 	PTPParams	*params = &camera->pl->params;
-	PTPStorageIDs	sids;
 	int		tries;
 
 	GP_LOG_D ("preparing EOS capture...");
@@ -417,10 +416,10 @@ skip:
 		unsigned int i;
 
 		C_PTP (ptp_canon_eos_getdeviceinfo (params, &x));
-		for (i=0;i<x.EventsSupported_len;i++)
-			GP_LOG_D ("event: %04x", x.EventsSupported[i]);
-		for (i=0;i<x.DevicePropertiesSupported_len;i++)
-			GP_LOG_D ("deviceprop: %04x", x.DevicePropertiesSupported[i]);
+		for (i=0;i<x.Events_len;i++)
+			GP_LOG_D ("event: %04x", x.Events[i]);
+		for (i=0;i<x.DeviceProps_len;i++)
+			GP_LOG_D ("deviceprop: %04x", x.DeviceProps[i]);
 		for (i=0;i<x.unk_len;i++)
 			GP_LOG_D ("unk: %04x", x.unk[i]);
 		ptp_canon_eos_free_deviceinfo (&x);
@@ -440,14 +439,17 @@ skip:
 	ptp_free_deviceinfo (&params->deviceinfo);
 	C_PTP (ptp_getdeviceinfo(params, &params->deviceinfo));
 	CR (fixup_cached_deviceinfo (camera, &params->deviceinfo));
+
+	/* TODO: the following block of code seems to have no effect, remove? */
+	PTPStorageIDs sids;
 	C_PTP (ptp_canon_eos_getstorageids(params, &sids));
-	if (sids.n >= 1) {
+	if (sids.len >= 1) {
 		unsigned char *sdata;
 		unsigned int slen;
-		C_PTP (ptp_canon_eos_getstorageinfo(params, sids.Storage[0], &sdata, &slen ));
+		C_PTP (ptp_canon_eos_getstorageinfo(params, sids.val[0], &sdata, &slen));
 		free (sdata);
 	}
-	free (sids.Storage);
+	free_array(&sids);
 
 	/* FIXME: 9114 call missing here! */
 
@@ -472,7 +474,7 @@ skip:
 		(strcmp(params->deviceinfo.Model,"Canon EOS M50m2") != 0)
 	) {
 		/* This code is needed on EOS m3 at least. might not be needed on others ... mess :/ */
-		PTPPropertyValue    ct_val;
+		PTPPropValue ct_val;
 
 		GP_LOG_D ("EOS M detected");
 
@@ -497,7 +499,7 @@ camera_prepare_capture (Camera *camera, GPContext *context)
 	GP_LOG_D ("prepare_capture");
 	switch (params->deviceinfo.VendorExtensionID) {
 	case PTP_VENDOR_FUJI: {
-		PTPPropertyValue propval;
+		PTPPropValue propval;
 
 		/* without the firmware update ... not an error... */
 		if (!have_prop (camera, PTP_VENDOR_FUJI, PTP_DPC_FUJI_PriorityMode))
@@ -574,7 +576,7 @@ camera_unprepare_canon_eos_capture(Camera *camera, GPContext *context) {
 		CR (ptp_canon_eos_afcancel(params));
 
 	if (is_canon_eos_m (params)) {
-		PTPPropertyValue    ct_val;
+		PTPPropValue ct_val;
 
 		ct_val.u32 = 0x0000;
 		C_PTP (ptp_canon_eos_setdevicepropvalue (params, PTP_DPC_CANON_EOS_EVFOutputDevice, &ct_val, PTP_DTC_UINT32));
@@ -584,9 +586,9 @@ camera_unprepare_canon_eos_capture(Camera *camera, GPContext *context) {
 	CR (camera_canon_eos_update_capture_target(camera, context, 1));
 
 	if (ptp_operation_issupported(&camera->pl->params, PTP_OC_CANON_EOS_ResetUILock)) {
-		if (params->uilocked) {
+		if (params->eos_uilocked) {
 			LOG_ON_PTP_E (ptp_canon_eos_resetuilock (params));
-			params->uilocked = 0;
+			params->eos_uilocked = 0;
 		}
 	}
 
@@ -622,7 +624,7 @@ camera_unprepare_capture (Camera *camera, GPContext *context)
 		_("Sorry, your Canon camera does not support Canon capture"));
 		return GP_ERROR_NOT_SUPPORTED;
 	case PTP_VENDOR_FUJI: {
-		PTPPropertyValue propval;
+		PTPPropValue propval;
 		PTPParams *params = &camera->pl->params;
 
 		if (params->inliveview) {
@@ -669,7 +671,7 @@ struct submenu;
 #define CONFIG_GET_ARGS Camera *camera, CameraWidget **widget, struct submenu* menu, PTPDevicePropDesc *dpd
 #define CONFIG_GET_NAMES camera, widget, menu, dpd
 typedef int (*get_func)(CONFIG_GET_ARGS);
-#define CONFIG_PUT_ARGS Camera *camera, CameraWidget *widget, PTPPropertyValue *propval, PTPDevicePropDesc *dpd, int *alreadyset
+#define CONFIG_PUT_ARGS Camera *camera, CameraWidget *widget, PTPPropValue *propval, PTPDevicePropDesc *dpd, int *alreadyset
 #define CONFIG_PUT_NAMES camera, widget, propval, dpd, alreadyset
 typedef int (*put_func)(CONFIG_PUT_ARGS);
 
@@ -774,8 +776,8 @@ _get_Generic##bits##Table(CONFIG_GET_ARGS, struct deviceproptable##bits * tbl, i
 	} \
 	if (dpd->FormFlag & PTP_DPFF_Range) { \
 		type r;	\
-		for (	r = dpd->FORM.Range.MinimumValue.bits; \
-			r<=dpd->FORM.Range.MaximumValue.bits; \
+		for (	r = dpd->FORM.Range.MinValue.bits; \
+			r<=dpd->FORM.Range.MaxValue.bits; \
 			r+= dpd->FORM.Range.StepSize.bits \
 		) { \
 			isset = FALSE; \
@@ -886,14 +888,14 @@ GENERIC_TABLE(i8, int8_t,  PTP_DTC_INT8)
 static int						\
 _get_##name(CONFIG_GET_ARGS) {				\
 	return _get_Genericu16Table(CONFIG_GET_NAMES,	\
-		tbl,sizeof(tbl)/sizeof(tbl[0])		\
+		tbl,ARRAYSIZE(tbl)		\
 	);						\
 }							\
 							\
 static int __unused__					\
 _put_##name(CONFIG_PUT_ARGS) {				\
 	return _put_Genericu16Table(CONFIG_PUT_NAMES,	\
-		tbl,sizeof(tbl)/sizeof(tbl[0])		\
+		tbl,ARRAYSIZE(tbl)		\
 	);						\
 }
 
@@ -901,14 +903,14 @@ _put_##name(CONFIG_PUT_ARGS) {				\
 static int						\
 _get_##name(CONFIG_GET_ARGS) {				\
 	return _get_Genericu32Table(CONFIG_GET_NAMES,	\
-		tbl,sizeof(tbl)/sizeof(tbl[0])		\
+		tbl,ARRAYSIZE(tbl)		\
 	);						\
 }							\
 							\
 static int __unused__					\
 _put_##name(CONFIG_PUT_ARGS) {				\
 	return _put_Genericu32Table(CONFIG_PUT_NAMES,	\
-		tbl,sizeof(tbl)/sizeof(tbl[0])		\
+		tbl,ARRAYSIZE(tbl)		\
 	);						\
 }
 
@@ -916,14 +918,14 @@ _put_##name(CONFIG_PUT_ARGS) {				\
 static int						\
 _get_##name(CONFIG_GET_ARGS) {				\
 	return _get_Generici16Table(CONFIG_GET_NAMES,	\
-		tbl,sizeof(tbl)/sizeof(tbl[0])		\
+		tbl,ARRAYSIZE(tbl)		\
 	);						\
 }							\
 							\
 static int __unused__					\
 _put_##name(CONFIG_PUT_ARGS) {				\
 	return _put_Generici16Table(CONFIG_PUT_NAMES,	\
-		tbl,sizeof(tbl)/sizeof(tbl[0])		\
+		tbl,ARRAYSIZE(tbl)		\
 	);						\
 }
 
@@ -931,14 +933,14 @@ _put_##name(CONFIG_PUT_ARGS) {				\
 static int						\
 _get_##name(CONFIG_GET_ARGS) {				\
 	return _get_Genericu8Table(CONFIG_GET_NAMES,	\
-		tbl,sizeof(tbl)/sizeof(tbl[0])		\
+		tbl,ARRAYSIZE(tbl)		\
 	);						\
 }							\
 							\
 static int __unused__					\
 _put_##name(CONFIG_PUT_ARGS) {				\
 	return _put_Genericu8Table(CONFIG_PUT_NAMES,	\
-		tbl,sizeof(tbl)/sizeof(tbl[0])		\
+		tbl,ARRAYSIZE(tbl)		\
 	);						\
 }
 
@@ -946,14 +948,14 @@ _put_##name(CONFIG_PUT_ARGS) {				\
 static int						\
 _get_##name(CONFIG_GET_ARGS) {				\
 	return _get_Generici8Table(CONFIG_GET_NAMES,	\
-		tbl,sizeof(tbl)/sizeof(tbl[0])		\
+		tbl,ARRAYSIZE(tbl)		\
 	);						\
 }							\
 							\
 static int __unused__					\
 _put_##name(CONFIG_PUT_ARGS) {				\
 	return _put_Generici8Table(CONFIG_PUT_NAMES,	\
-		tbl,sizeof(tbl)/sizeof(tbl[0])		\
+		tbl,ARRAYSIZE(tbl)		\
 	);						\
 }
 
@@ -1021,9 +1023,9 @@ _put_AUINT8_as_CHAR_ARRAY(CONFIG_PUT_ARGS) {
 	unsigned int i;
 
 	CR (gp_widget_get_value(widget, &value));
-	memset(propval,0,sizeof(PTPPropertyValue));
+	memset(propval,0,sizeof(PTPPropValue));
 	/* add \0 ? */
-	C_MEM (propval->a.v = calloc((strlen(value)+1),sizeof(PTPPropertyValue)));
+	C_MEM (propval->a.v = calloc((strlen(value)+1),sizeof(PTPPropValue)));
 	propval->a.count = strlen(value)+1;
 	for (i=0;i<strlen(value)+1;i++)
 		propval->a.v[i].u8 = value[i];
@@ -1041,7 +1043,7 @@ _get_Range_INT8(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RANGE, _(menu->label), widget);
 	gp_widget_set_name ( *widget, menu->name);
 	CurrentValue = (float) dpd->CurrentValue.i8;
-	gp_widget_set_range ( *widget, (float) dpd->FORM.Range.MinimumValue.i8, (float) dpd->FORM.Range.MaximumValue.i8, (float) dpd->FORM.Range.StepSize.i8);
+	gp_widget_set_range ( *widget, (float) dpd->FORM.Range.MinValue.i8, (float) dpd->FORM.Range.MaxValue.i8, (float) dpd->FORM.Range.StepSize.i8);
 	gp_widget_set_value ( *widget, &CurrentValue);
 	return (GP_OK);
 }
@@ -1067,7 +1069,7 @@ _get_Range_UINT8(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RANGE, _(menu->label), widget);
 	gp_widget_set_name ( *widget, menu->name);
 	CurrentValue = (float) dpd->CurrentValue.u8;
-	gp_widget_set_range ( *widget, (float) dpd->FORM.Range.MinimumValue.u8, (float) dpd->FORM.Range.MaximumValue.u8, (float) dpd->FORM.Range.StepSize.u8);
+	gp_widget_set_range ( *widget, (float) dpd->FORM.Range.MinValue.u8, (float) dpd->FORM.Range.MaxValue.u8, (float) dpd->FORM.Range.StepSize.u8);
 	gp_widget_set_value ( *widget, &CurrentValue);
 	return (GP_OK);
 }
@@ -1145,7 +1147,7 @@ _get_INT(CONFIG_GET_ARGS) {
 	if (dpd->FormFlag == PTP_DPFF_Range) {
 		float b = 0, t = 0, s = 0;
 
-#define X(type,u) case type: b = (float)dpd->FORM.Range.MinimumValue.u; t = (float)dpd->FORM.Range.MaximumValue.u; s = (float)dpd->FORM.Range.StepSize.u; break;
+#define X(type,u) case type: b = (float)dpd->FORM.Range.MinValue.u; t = (float)dpd->FORM.Range.MaxValue.u; s = (float)dpd->FORM.Range.StepSize.u; break;
 		switch (dpd->DataType) {
 		X(PTP_DTC_UINT32,u32)
 		X(PTP_DTC_INT32,i32)
@@ -1274,7 +1276,7 @@ static int										\
 _put_sony_value_##bits (PTPParams*params, uint16_t prop, inttype value,int useenumorder) {	\
 	GPContext 		*context = ((PTPData *) params->data)->context;		\
 	PTPDevicePropDesc	dpd;							\
-	PTPPropertyValue	propval;						\
+	PTPPropValue		propval;						\
 	inttype			origval;						\
 	time_t			start,end;						\
 	int			tries = 100;	/* 100 steps allowed towards the new value */	\
@@ -1623,7 +1625,7 @@ _put_Sony_ExpCompensation(CONFIG_PUT_ARGS) {
 	ret = _put_ExpCompensation(CONFIG_PUT_NAMES);
 	if (ret != GP_OK) return ret;
 	*alreadyset = 1;
-	return _put_sony_value_i16 (&camera->pl->params, dpd->DevicePropertyCode, propval->i16, 0);
+	return _put_sony_value_i16 (&camera->pl->params, dpd->DevicePropCode, propval->i16, 0);
 }
 
 /* new method, can set directly */
@@ -1634,7 +1636,7 @@ _put_Sony_ExpCompensation2(CONFIG_PUT_ARGS) {
 	ret = _put_ExpCompensation(CONFIG_PUT_NAMES);
 	if (ret != GP_OK) return ret;
 	*alreadyset = 1;
-	return translate_ptp_result (ptp_sony_setdevicecontrolvaluea (&camera->pl->params, dpd->DevicePropertyCode, propval, PTP_DTC_INT16));
+	return translate_ptp_result (ptp_sony_setdevicecontrolvaluea (&camera->pl->params, dpd->DevicePropCode, propval, PTP_DTC_INT16));
 }
 
 static int
@@ -1708,8 +1710,8 @@ _get_Canon_ZoomRange(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RANGE, _(menu->label), widget);
 	gp_widget_set_name (*widget,menu->name);
 	f = (float)dpd->CurrentValue.u16;
-	b = (float)dpd->FORM.Range.MinimumValue.u16;
-	t = (float)dpd->FORM.Range.MaximumValue.u16;
+	b = (float)dpd->FORM.Range.MinValue.u16;
+	t = (float)dpd->FORM.Range.MaxValue.u16;
 	s = (float)dpd->FORM.Range.StepSize.u16;
 	gp_widget_set_range (*widget, b, t, s);
 	gp_widget_set_value (*widget, &f);
@@ -1768,8 +1770,8 @@ _get_Sony_Zoom(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RANGE, _(menu->label), widget);
 	gp_widget_set_name (*widget,menu->name);
 	f = (float)dpd->CurrentValue.u32 / 1000000;
-	b = (float)dpd->FORM.Range.MinimumValue.u32 / 1000000;
-	t = (float)dpd->FORM.Range.MaximumValue.u32 / 1000000;
+	b = (float)dpd->FORM.Range.MinValue.u32 / 1000000;
+	t = (float)dpd->FORM.Range.MaxValue.u32 / 1000000;
 	s = 1;
 	gp_widget_set_range (*widget, b, t, s);
 	gp_widget_set_value (*widget, &f);
@@ -1799,8 +1801,8 @@ _get_Nikon_WBBias(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RANGE, _(menu->label), widget);
 	gp_widget_set_name (*widget,menu->name);
 	f = (float)dpd->CurrentValue.i8;
-	b = (float)dpd->FORM.Range.MinimumValue.i8;
-	t = (float)dpd->FORM.Range.MaximumValue.i8;
+	b = (float)dpd->FORM.Range.MinValue.i8;
+	t = (float)dpd->FORM.Range.MaxValue.i8;
 	s = (float)dpd->FORM.Range.StepSize.i8;
 	gp_widget_set_range (*widget, b, t, s);
 	gp_widget_set_value (*widget, &f);
@@ -1829,20 +1831,20 @@ _get_Nikon_UWBBias(CONFIG_GET_ARGS) {
 	switch (dpd->DataType) {
 	case PTP_DTC_UINT16:
 		f = (float)dpd->CurrentValue.u16;
-		b = (float)dpd->FORM.Range.MinimumValue.u16;
-		t = (float)dpd->FORM.Range.MaximumValue.u16;
+		b = (float)dpd->FORM.Range.MinValue.u16;
+		t = (float)dpd->FORM.Range.MaxValue.u16;
 		s = (float)dpd->FORM.Range.StepSize.u16;
 		break;
 	case PTP_DTC_UINT8:
 		f = (float)dpd->CurrentValue.u8;
-		b = (float)dpd->FORM.Range.MinimumValue.u8;
-		t = (float)dpd->FORM.Range.MaximumValue.u8;
+		b = (float)dpd->FORM.Range.MinValue.u8;
+		t = (float)dpd->FORM.Range.MaxValue.u8;
 		s = (float)dpd->FORM.Range.StepSize.u8;
 		break;
 	case PTP_DTC_INT8:
 		f = (float)dpd->CurrentValue.i8;
-		b = (float)dpd->FORM.Range.MinimumValue.i8;
-		t = (float)dpd->FORM.Range.MaximumValue.i8;
+		b = (float)dpd->FORM.Range.MinValue.i8;
+		t = (float)dpd->FORM.Range.MaxValue.i8;
 		s = (float)dpd->FORM.Range.StepSize.i8;
 		break;
 	default:
@@ -1892,7 +1894,7 @@ _get_Nikon_WBBiasPreset(CONFIG_GET_ARGS) {
 		return (GP_ERROR);
 	gp_widget_new (GP_WIDGET_RADIO, _(menu->label), widget);
 	gp_widget_set_name (*widget,menu->name);
-	for (i = dpd->FORM.Range.MinimumValue.u8; i < dpd->FORM.Range.MaximumValue.u8; i++) {
+	for (i = dpd->FORM.Range.MinValue.u8; i < dpd->FORM.Range.MaxValue.u8; i++) {
 		sprintf (buf, "%d", i);
 		gp_widget_add_choice (*widget, buf);
 		if (i == dpd->CurrentValue.u8)
@@ -1922,8 +1924,8 @@ _get_Nikon_HueAdjustment(CONFIG_GET_ARGS) {
 		gp_widget_new (GP_WIDGET_RANGE, _(menu->label), widget);
 		gp_widget_set_name (*widget,menu->name);
 		f = (float)dpd->CurrentValue.i8;
-		b = (float)dpd->FORM.Range.MinimumValue.i8;
-		t = (float)dpd->FORM.Range.MaximumValue.i8;
+		b = (float)dpd->FORM.Range.MinValue.i8;
+		t = (float)dpd->FORM.Range.MaxValue.i8;
 		s = (float)dpd->FORM.Range.StepSize.i8;
 		gp_widget_set_range (*widget, b, t, s);
 		gp_widget_set_value (*widget, &f);
@@ -3040,12 +3042,12 @@ _get_Fuji_AFDrive(CONFIG_GET_ARGS) {
 static int
 _put_Fuji_AFDrive(CONFIG_PUT_ARGS)
 {
-	PTPParams		*params = &(camera->pl->params);
-	GPContext		*context = ((PTPData *) params->data)->context;
-	PTPPropertyValue	pval;
-	uint16_t		af_start_code;
-	uint16_t		af_stop_code;
-	int			ret = GP_OK;
+	PTPParams	*params = &(camera->pl->params);
+	GPContext	*context = ((PTPData *) params->data)->context;
+	PTPPropValue	pval;
+	uint16_t	af_start_code;
+	uint16_t	af_stop_code;
+	int		ret = GP_OK;
 
 	/* get the focus mode */
 	C_PTP_REP (ptp_getdevicepropvalue (params, PTP_DPC_FocusMode, &pval, PTP_DTC_UINT16));
@@ -3113,9 +3115,9 @@ _get_Fuji_AFDriveManual(CONFIG_GET_ARGS) {
 static int
 _put_Fuji_AFDriveManual(CONFIG_PUT_ARGS)
 {
-	PTPParams               *params = &(camera->pl->params);
-	GPContext               *context = ((PTPData *) params->data)->context;
-	PTPPropertyValue        pval;
+	PTPParams     *params = &(camera->pl->params);
+	GPContext     *context = ((PTPData *) params->data)->context;
+	PTPPropValue  pval;
 	int ret;
 
 	/* Focusing first ... */
@@ -3165,7 +3167,7 @@ static int
 _put_Fuji_FocusPoint(CONFIG_PUT_ARGS) {
 	PTPParams *params = &(camera->pl->params);
 	GPContext *context = ((PTPData *) params->data)->context;
-	PTPPropertyValue pval;
+	PTPPropValue pval;
 
 	CR (gp_widget_get_value(widget, &pval.str));
 	C_PTP_REP(ptp_setdevicepropvalue(params, PTP_DPC_FUJI_FocusArea4, &pval, PTP_DTC_STR));
@@ -3188,10 +3190,10 @@ _get_Fuji_Bulb(CONFIG_GET_ARGS) {
 static int
 _put_Fuji_Bulb(CONFIG_PUT_ARGS)
 {
-	PTPParams		*params = &(camera->pl->params);
-	int			val;
-	GPContext		*context = ((PTPData *) params->data)->context;
-	PTPPropertyValue	pval;
+	PTPParams	*params = &(camera->pl->params);
+	int		val;
+	GPContext	*context = ((PTPData *) params->data)->context;
+	PTPPropValue	pval;
 
 	CR (gp_widget_get_value(widget, &val));
 	if (val) {
@@ -3341,7 +3343,7 @@ _put_Sony_ISO(CONFIG_PUT_ARGS)
 	propval->u32 = raw_iso;
 	*alreadyset = 1;
 
-	return _put_sony_value_u32(params, dpd->DevicePropertyCode, raw_iso, 1);
+	return _put_sony_value_u32(params, dpd->DevicePropCode, raw_iso, 1);
 }
 
 /* new method, can just set the value via setcontroldevicea */
@@ -3358,7 +3360,7 @@ _put_Sony_ISO2(CONFIG_PUT_ARGS)
 	propval->u32 = raw_iso;
 
 	*alreadyset = 1;
-	return translate_ptp_result (ptp_sony_setdevicecontrolvaluea(params, dpd->DevicePropertyCode, propval, PTP_DTC_UINT32));
+	return translate_ptp_result (ptp_sony_setdevicecontrolvaluea(params, dpd->DevicePropCode, propval, PTP_DTC_UINT32));
 }
 
 static int
@@ -3386,7 +3388,7 @@ _put_Sony_QX_ISO(CONFIG_PUT_ARGS)
 setiso:
 	propval->u32 = u;
 
-	/*return translate_ptp_result (ptp_sony_qx_setdevicecontrolvaluea(params, dpd->DevicePropertyCode, propval, PTP_DTC_UINT32));*/
+	/*return translate_ptp_result (ptp_sony_qx_setdevicecontrolvaluea(params, dpd->DevicePropCode, propval, PTP_DTC_UINT32));*/
 
 	return GP_OK; /* will be set by generic code */
 }
@@ -3466,12 +3468,12 @@ _get_Milliseconds(CONFIG_GET_ARGS) {
 		unsigned int s;
 
 		if (dpd->DataType == PTP_DTC_UINT32) {
-			min = dpd->FORM.Range.MinimumValue.u32;
-			max = dpd->FORM.Range.MaximumValue.u32;
+			min = dpd->FORM.Range.MinValue.u32;
+			max = dpd->FORM.Range.MaxValue.u32;
 			s = dpd->FORM.Range.StepSize.u32;
 		} else {
-			min = dpd->FORM.Range.MinimumValue.u16;
-			max = dpd->FORM.Range.MaximumValue.u16;
+			min = dpd->FORM.Range.MinValue.u16;
+			max = dpd->FORM.Range.MaxValue.u16;
 			s = dpd->FORM.Range.StepSize.u16;
 		}
 		for (i=min; i<=max; i+=s) {
@@ -3540,8 +3542,8 @@ _get_FNumber(CONFIG_GET_ARGS) {
 		gp_widget_new (GP_WIDGET_RANGE, _(menu->label), widget);
 		gp_widget_set_name (*widget, menu->name);
 		gp_widget_set_range (*widget,
-				dpd->FORM.Range.MinimumValue.u16/100.0,
-				dpd->FORM.Range.MaximumValue.u16/100.0,
+				dpd->FORM.Range.MinValue.u16/100.0,
+				dpd->FORM.Range.MaxValue.u16/100.0,
 				dpd->FORM.Range.StepSize.u16/100.0
 				);
 		value_float = dpd->CurrentValue.u16/100.0;
@@ -3646,7 +3648,7 @@ _get_Sony_FNumber(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RADIO, _(menu->label), widget);
 	gp_widget_set_name (*widget, menu->name);
 
-	for (i=0;i<sizeof(sony_fnumbers)/sizeof(sony_fnumbers[0]); i++) {
+	for (i=0;i<ARRAYSIZE(sony_fnumbers); i++) {
 		sprintf(buf,"f/%g",sony_fnumbers[i]/100.0);
 		gp_widget_add_choice (*widget,buf);
 		if (sony_fnumbers[i] == dpd->CurrentValue.u16) {
@@ -3800,8 +3802,8 @@ _get_Video_Framerate(CONFIG_GET_ARGS) {
 	if (dpd->FormFlag == PTP_DPFF_Range) {
 		float b, t, s;
 
-		b = (1.0*dpd->FORM.Range.MinimumValue.u32) / 1000000.0;
-		t = (1.0*dpd->FORM.Range.MaximumValue.u32) / 1000000.0;
+		b = (1.0*dpd->FORM.Range.MinValue.u32) / 1000000.0;
+		t = (1.0*dpd->FORM.Range.MaxValue.u32) / 1000000.0;
 		s = (1.0*dpd->FORM.Range.StepSize.u32) / 1000000.0;
 		gp_widget_set_range (*widget, b, t, s);
 	}
@@ -3844,12 +3846,12 @@ _get_Sharpness(CONFIG_GET_ARGS) {
 		int s;
 
 		if (dpd->DataType == PTP_DTC_UINT8) {
-			min = dpd->FORM.Range.MinimumValue.u8;
-			max = dpd->FORM.Range.MaximumValue.u8;
+			min = dpd->FORM.Range.MinValue.u8;
+			max = dpd->FORM.Range.MaxValue.u8;
 			s = dpd->FORM.Range.StepSize.u8;
 		} else {
-			min = dpd->FORM.Range.MinimumValue.i8;
-			max = dpd->FORM.Range.MaximumValue.i8;
+			min = dpd->FORM.Range.MinValue.i8;
+			max = dpd->FORM.Range.MaxValue.i8;
 			s = dpd->FORM.Range.StepSize.i8;
 		}
 		if (!s) {
@@ -3956,12 +3958,12 @@ _put_Sharpness(CONFIG_PUT_ARGS) {
 		int s;
 
 		if (dpd->DataType == PTP_DTC_UINT8) {
-			min = dpd->FORM.Range.MinimumValue.u8;
-			max = dpd->FORM.Range.MaximumValue.u8;
+			min = dpd->FORM.Range.MinValue.u8;
+			max = dpd->FORM.Range.MaxValue.u8;
 			s = dpd->FORM.Range.StepSize.u8;
 		} else {
-			min = dpd->FORM.Range.MinimumValue.i8;
-			max = dpd->FORM.Range.MaximumValue.i8;
+			min = dpd->FORM.Range.MinValue.i8;
+			max = dpd->FORM.Range.MaxValue.i8;
 			s = dpd->FORM.Range.StepSize.i8;
 		}
 		for (i=min; i<=max; i+=s) {
@@ -4482,7 +4484,7 @@ _get_Canon_CameraOrientation(CONFIG_GET_ARGS) {
 		return (GP_ERROR);
 	gp_widget_new (GP_WIDGET_TEXT, _(menu->label), widget);
 	gp_widget_set_name (*widget, menu->name);
-	for (i=0;i<sizeof(canon_orientation)/sizeof(canon_orientation[0]);i++) {
+	for (i=0;i<ARRAYSIZE(canon_orientation);i++) {
 		if (canon_orientation[i].value != dpd->CurrentValue.u16)
 			continue;
 		gp_widget_set_value (*widget, canon_orientation[i].label);
@@ -4620,8 +4622,8 @@ _get_FocalLength(CONFIG_GET_ARGS) {
 		step = 1.0;
 	}
 	if (dpd->FormFlag & PTP_DPFF_Range) {
-		start = dpd->FORM.Range.MinimumValue.u32/100.0;
-		end = dpd->FORM.Range.MaximumValue.u32/100.0;
+		start = dpd->FORM.Range.MinValue.u32/100.0;
+		end = dpd->FORM.Range.MaxValue.u32/100.0;
 		step = dpd->FORM.Range.StepSize.u32/100.0;
 	}
 	gp_widget_set_range (*widget, start, end, step);
@@ -4750,8 +4752,8 @@ _get_FocusDistance(CONFIG_GET_ARGS) {
 		gp_widget_new (GP_WIDGET_RANGE, _(menu->label), widget);
 		gp_widget_set_name (*widget, menu->name);
 
-		start = dpd->FORM.Range.MinimumValue.u16/100.0;
-		end = dpd->FORM.Range.MaximumValue.u16/100.0;
+		start = dpd->FORM.Range.MinValue.u16/100.0;
+		end = dpd->FORM.Range.MaxValue.u16/100.0;
 		step = dpd->FORM.Range.StepSize.u16/100.0;
 		gp_widget_set_range (*widget, start, end, step);
 		value_float = dpd->CurrentValue.u16/100.0;
@@ -5108,7 +5110,7 @@ _get_SigmaFP_Aperture(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RADIO, _(menu->label), widget);
 	gp_widget_set_name (*widget, menu->name);
 
-	for (i=0;i<sizeof(sigma_apertures)/sizeof(sigma_apertures[0]);i++) {
+	for (i=0;i<ARRAYSIZE(sigma_apertures);i++) {
 		gp_widget_add_choice (*widget, _(sigma_apertures[i].val));
 		if (aperture == sigma_apertures[i].numval) {
 			gp_widget_set_value (*widget, _(sigma_apertures[i].val));
@@ -5133,7 +5135,7 @@ _put_SigmaFP_Aperture(CONFIG_PUT_ARGS) {
 	gp_widget_get_value (widget, &value_str);
 	memset(datagrp1,0,sizeof(datagrp1));
 
-	for (i=0;i<sizeof(sigma_apertures)/sizeof(sigma_apertures[0]);i++) {
+	for (i=0;i<ARRAYSIZE(sigma_apertures);i++) {
 		if (!strcmp(value_str,_(sigma_apertures[i].val))) {
 			aperture = sigma_apertures[i].numval;
 			valfound = 1;
@@ -5254,7 +5256,7 @@ _get_SigmaFP_ShutterSpeed(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RADIO, _(menu->label), widget);
 	gp_widget_set_name (*widget, menu->name);
 
-	for (i=0;i<sizeof(sigma_shutterspeeds)/sizeof(sigma_shutterspeeds[0]);i++) {
+	for (i=0;i<ARRAYSIZE(sigma_shutterspeeds);i++) {
 		gp_widget_add_choice (*widget, _(sigma_shutterspeeds[i].val));
 		if (shutterspeed == sigma_shutterspeeds[i].numval) {
 			gp_widget_set_value (*widget, _(sigma_shutterspeeds[i].val));
@@ -5279,7 +5281,7 @@ _put_SigmaFP_ShutterSpeed(CONFIG_PUT_ARGS) {
 	gp_widget_get_value (widget, &value_str);
 	memset(datagrp1,0,sizeof(datagrp1));
 
-	for (i=0;i<sizeof(sigma_shutterspeeds)/sizeof(sigma_shutterspeeds[0]);i++) {
+	for (i=0;i<ARRAYSIZE(sigma_shutterspeeds);i++) {
 		if (!strcmp(value_str,_(sigma_shutterspeeds[i].val))) {
 			shutterspeed = sigma_shutterspeeds[i].numval;
 			valfound = 1;
@@ -5412,7 +5414,7 @@ _get_Sony_ShutterSpeed(CONFIG_GET_ARGS) {
 	} else {
 		unsigned int i;
 		/* use our static table */
-		for (i=0;i<sizeof(sony_shuttertable)/sizeof(sony_shuttertable[0]);i++) {
+		for (i=0;i<ARRAYSIZE(sony_shuttertable);i++) {
 			x = sony_shuttertable[i].dividend;
 			y = sony_shuttertable[i].divisor;
 			if (y == 1)
@@ -5447,15 +5449,15 @@ _get_Sony_ShutterSpeed(CONFIG_GET_ARGS) {
 
 static int
 _put_Sony_ShutterSpeed(CONFIG_PUT_ARGS) {
-	int			x,y,a,b,direction,position_current,position_new;
-	const char		*val;
-	float 			old,new,current;
-	PTPPropertyValue	value;
-	uint32_t		new32, origval;
-	PTPParams		*params = &(camera->pl->params);
-	GPContext 		*context = ((PTPData *) params->data)->context;
-	time_t			start,end;
-	unsigned int		i;
+	int		x,y,a,b,direction,position_current,position_new;
+	const char	*val;
+	float 		old,new,current;
+	PTPPropValue	value;
+	uint32_t	new32, origval;
+	PTPParams	*params = &(camera->pl->params);
+	GPContext 	*context = ((PTPData *) params->data)->context;
+	time_t		start,end;
+	unsigned int	i;
 
 	CR (gp_widget_get_value (widget, &val));
 
@@ -5500,9 +5502,9 @@ _put_Sony_ShutterSpeed(CONFIG_PUT_ARGS) {
 	}
 
 	if (direction == 1) {
-		position_new = sizeof(sony_shuttertable)/sizeof(sony_shuttertable[0])-1;
+		position_new = ARRAYSIZE(sony_shuttertable)-1;
 
-		for (i=0;i<sizeof(sony_shuttertable)/sizeof(sony_shuttertable[0]);i++) {
+		for (i=0;i<ARRAYSIZE(sony_shuttertable);i++) {
 			a = sony_shuttertable[i].dividend;
 			b = sony_shuttertable[i].divisor;
 			position_new = i;
@@ -5512,7 +5514,7 @@ _put_Sony_ShutterSpeed(CONFIG_PUT_ARGS) {
 	} else {
 		position_new = 0;
 
-		for (i=sizeof(sony_shuttertable)/sizeof(sony_shuttertable[0])-1;i--;) {
+		for (i=ARRAYSIZE(sony_shuttertable)-1;i--;) {
 			a = sony_shuttertable[i].dividend;
 			b = sony_shuttertable[i].divisor;
 			position_new = i;
@@ -5526,7 +5528,7 @@ _put_Sony_ShutterSpeed(CONFIG_PUT_ARGS) {
 		if (old == new)
 			break;
 
-		for (i=0;i<sizeof(sony_shuttertable)/sizeof(sony_shuttertable[0]);i++) {
+		for (i=0;i<ARRAYSIZE(sony_shuttertable);i++) {
 			a = sony_shuttertable[i].dividend;
 			b = sony_shuttertable[i].divisor;
 			position_current = i;
@@ -5555,7 +5557,7 @@ _put_Sony_ShutterSpeed(CONFIG_PUT_ARGS) {
 
 		a = dpd->CurrentValue.u32>>16;
 		b = dpd->CurrentValue.u32&0xffff;
-		C_PTP_REP (ptp_sony_setdevicecontrolvalueb (params, dpd->DevicePropertyCode, &value, PTP_DTC_UINT8 ));
+		C_PTP_REP (ptp_sony_setdevicecontrolvalueb (params, dpd->DevicePropCode, &value, PTP_DTC_UINT8 ));
 
 		GP_LOG_D ("shutterspeed value is (0x%x vs target 0x%x)", origval, new32);
 
@@ -5563,7 +5565,7 @@ _put_Sony_ShutterSpeed(CONFIG_PUT_ARGS) {
 		time(&start);
 		do {
 			C_PTP_REP (ptp_sony_getalldevicepropdesc (params));
-			C_PTP_REP (ptp_generic_getdevicepropdesc (params, dpd->DevicePropertyCode, dpd));
+			C_PTP_REP (ptp_generic_getdevicepropdesc (params, dpd->DevicePropCode, dpd));
 
 			if (dpd->CurrentValue.u32 == new32) {
 				GP_LOG_D ("Value matched!");
@@ -5697,8 +5699,8 @@ _get_Nikon_FlashExposureCompensation(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RANGE, _(menu->label), widget);
 	gp_widget_set_name (*widget, menu->name);
 	gp_widget_set_range (*widget,
-		dpd->FORM.Range.MinimumValue.i8/6.0,
-		dpd->FORM.Range.MaximumValue.i8/6.0,
+		dpd->FORM.Range.MinValue.i8/6.0,
+		dpd->FORM.Range.MaxValue.i8/6.0,
 		dpd->FORM.Range.StepSize.i8/6.0
 	);
 	value_float = dpd->CurrentValue.i8/6.0;
@@ -5726,8 +5728,8 @@ _get_Nikon_LowLight(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RANGE, _(menu->label), widget);
 	gp_widget_set_name (*widget, menu->name);
 	gp_widget_set_range (*widget,
-		dpd->FORM.Range.MinimumValue.u8,
-		dpd->FORM.Range.MaximumValue.u8,
+		dpd->FORM.Range.MinValue.u8,
+		dpd->FORM.Range.MaxValue.u8,
 		dpd->FORM.Range.StepSize.u8
 	);
 	value_float = dpd->CurrentValue.u8;
@@ -7426,8 +7428,8 @@ _get_BatteryLevel(CONFIG_GET_ARGS) {
 	}
 	if (dpd->FormFlag == PTP_DPFF_Range) {
 		gp_widget_set_name (*widget, menu->name);
-		start = dpd->FORM.Range.MinimumValue.u8;
-		end = dpd->FORM.Range.MaximumValue.u8;
+		start = dpd->FORM.Range.MinValue.u8;
+		end = dpd->FORM.Range.MaxValue.u8;
 		value_float = dpd->CurrentValue.u8;
 		if (0 == end - start + 1) {
 			/* avoid division by 0 */
@@ -7453,12 +7455,12 @@ _get_SONY_BatteryLevel(CONFIG_GET_ARGS) {
 
 	if (dpd->FormFlag == PTP_DPFF_Range) {
 		gp_widget_set_name (*widget, menu->name);
-		start = dpd->FORM.Range.MinimumValue.i8;
-		if (dpd->FORM.Range.MinimumValue.i8 == -1)
+		start = dpd->FORM.Range.MinValue.i8;
+		if (dpd->FORM.Range.MinValue.i8 == -1)
 			start = 0; /* -1 might be special for unknown? */
 		else
-			start = dpd->FORM.Range.MinimumValue.i8;
-		end = dpd->FORM.Range.MaximumValue.i8;
+			start = dpd->FORM.Range.MinValue.i8;
+		end = dpd->FORM.Range.MaxValue.i8;
 		value_float = dpd->CurrentValue.i8;
 		if (0 == end - start + 1) {
 			/* avoid division by 0 */
@@ -8350,10 +8352,10 @@ _get_Canon_EOS_ViewFinder(CONFIG_GET_ARGS) {
 
 static int
 _put_Canon_EOS_ViewFinder(CONFIG_PUT_ARGS) {
-	int			val;
-	uint16_t		res;
-	PTPParams		*params = &(camera->pl->params);
-	PTPPropertyValue	xval;
+	int		val;
+	uint16_t	res;
+	PTPParams	*params = &(camera->pl->params);
+	PTPPropValue	xval;
 
 	CR (gp_widget_get_value(widget, &val));
 	if (val) {
@@ -8437,9 +8439,9 @@ _put_Panasonic_ViewFinder(CONFIG_PUT_ARGS) {
 
 static int
 _get_Nikon_ViewFinder(CONFIG_GET_ARGS) {
-	int			val;
-	PTPPropertyValue	value;
-	PTPParams		*params = &(camera->pl->params);
+	int		val;
+	PTPPropValue	value;
+	PTPParams	*params = &(camera->pl->params);
 
 	gp_widget_new (GP_WIDGET_TOGGLE, _(menu->label), widget);
 	gp_widget_set_name (*widget, menu->name);
@@ -8463,7 +8465,7 @@ _put_Nikon_ViewFinder(CONFIG_PUT_ARGS) {
 
 	CR (gp_widget_get_value (widget, &val));
 	if (val) {
-		PTPPropertyValue	value;
+		PTPPropValue	value;
 
 		if (LOG_ON_PTP_E (ptp_getdevicepropvalue (params, PTP_DPC_NIKON_LiveViewStatus, &value, PTP_DTC_UINT8)) != PTP_RC_OK)
 			value.u8 = 0;
@@ -8663,7 +8665,7 @@ _put_Sony_Movie(CONFIG_PUT_ARGS)
 {
 	PTPParams *params = &(camera->pl->params);
 	int val;
-	PTPPropertyValue	value;
+	PTPPropValue value;
 	GPContext *context = ((PTPData *) params->data)->context;
 
 	CR (gp_widget_get_value(widget, &val));
@@ -8691,7 +8693,7 @@ _put_Sony_QX_Movie(CONFIG_PUT_ARGS)
 {
 	PTPParams *params = &(camera->pl->params);
 	int val;
-	PTPPropertyValue	value;
+	PTPPropValue value;
 	GPContext *context = ((PTPData *) params->data)->context;
 
 	CR (gp_widget_get_value(widget, &val));
@@ -8706,9 +8708,9 @@ _put_Sony_QX_Movie(CONFIG_PUT_ARGS)
 
 static int
 _get_Nikon_MovieProhibitCondition(CONFIG_GET_ARGS) {
-	char 			buf[2000];
-	PTPPropertyValue	value;
-	PTPParams 		*params = &(camera->pl->params);
+	char 		buf[2000];
+	PTPPropValue	value;
+	PTPParams 	*params = &(camera->pl->params);
 
 	gp_widget_new (GP_WIDGET_TEXT, _(menu->label), widget);
 	gp_widget_set_name (*widget,menu->name);
@@ -8746,9 +8748,9 @@ _get_Nikon_MovieProhibitCondition(CONFIG_GET_ARGS) {
 
 static int
 _get_Nikon_LiveViewProhibitCondition(CONFIG_GET_ARGS) {
-	char 			buf[2000];
-	PTPPropertyValue	value;
-	PTPParams 		*params = &(camera->pl->params);
+	char 		buf[2000];
+	PTPPropValue	value;
+	PTPParams 	*params = &(camera->pl->params);
 
 	gp_widget_new (GP_WIDGET_TEXT, _(menu->label), widget);
 	gp_widget_set_name (*widget,menu->name);
@@ -8806,7 +8808,7 @@ _put_Nikon_Movie(CONFIG_PUT_ARGS)
 	PTPParams *params = &(camera->pl->params);
 	int val, ret;
 	GPContext *context = ((PTPData *) params->data)->context;
-	PTPPropertyValue	value;
+	PTPPropValue value;
 
 	CR (gp_widget_get_value(widget, &val));
 	if (val) {
@@ -8860,8 +8862,8 @@ _put_Nikon_Movie(CONFIG_PUT_ARGS)
 
 		C_PTP_REP (ptp_nikon_stopmovie (params));
 
-		for (i=0;i<params->deviceinfo.EventsSupported_len;i++)
-			if (params->deviceinfo.EventsSupported[i] == PTP_EC_Nikon_MovieRecordComplete) {
+		for (i=0;i<params->deviceinfo.Events_len;i++)
+			if (params->deviceinfo.Events[i] == PTP_EC_Nikon_MovieRecordComplete) {
 				havec108 = 1;
 				break;
 			}
@@ -8919,7 +8921,7 @@ _put_Nikon_Bulb(CONFIG_PUT_ARGS)
 
 	CR (gp_widget_get_value(widget, &val));
 	if (val) {
-		PTPPropertyValue propval2;
+		PTPPropValue propval2;
 		char buf[20];
 
 		C_PTP (ptp_nikon_changecameramode (params, 1));
@@ -8994,7 +8996,7 @@ _put_Sony_Autofocus(CONFIG_PUT_ARGS)
 {
 	PTPParams *params = &(camera->pl->params);
 	int val;
-	PTPPropertyValue xpropval;
+	PTPPropValue xpropval;
 
 	CR (gp_widget_get_value(widget, &val));
 	xpropval.u16 = val ? 2 : 1;
@@ -9021,7 +9023,7 @@ _put_Sony_ManualFocus(CONFIG_PUT_ARGS)
 {
 	PTPParams *params = &(camera->pl->params);
 	float val;
-	PTPPropertyValue xpropval;
+	PTPPropValue xpropval;
 
 	CR (gp_widget_get_value(widget, &val));
 
@@ -9070,7 +9072,7 @@ _put_Sony_Capture(CONFIG_PUT_ARGS)
 {
 	PTPParams *params = &(camera->pl->params);
 	int val;
-	PTPPropertyValue xpropval;
+	PTPPropValue xpropval;
 
 	CR (gp_widget_get_value(widget, &val));
 	xpropval.u16 = val ? 2 : 1;
@@ -9096,7 +9098,7 @@ _put_Sony_Bulb(CONFIG_PUT_ARGS)
 {
 	PTPParams *params = &(camera->pl->params);
 	int val;
-	PTPPropertyValue xpropval;
+	PTPPropValue xpropval;
 
 	CR (gp_widget_get_value(widget, &val));
 	if (val) {
@@ -9132,12 +9134,12 @@ _put_Sony_FocusMagnifyProp(CONFIG_PUT_ARGS)
 {
 	PTPParams *params = &(camera->pl->params);
 	int val;
-	PTPPropertyValue xpropval;
+	PTPPropValue xpropval;
 
 	CR (gp_widget_get_value(widget, &val));
 	xpropval.u16 = val ? 2 : 1;
 
-	C_PTP (ptp_sony_setdevicecontrolvalueb (params, dpd->DevicePropertyCode, &xpropval, PTP_DTC_UINT16));
+	C_PTP (ptp_sony_setdevicecontrolvalueb (params, dpd->DevicePropCode, &xpropval, PTP_DTC_UINT16));
 	*alreadyset = 1;
 	return GP_OK;
 }
@@ -9500,7 +9502,7 @@ _put_Panasonic_AFMode(CONFIG_PUT_ARGS)
 
 	CR (gp_widget_get_value(widget, &xval));
 
-	for (i=0;i<sizeof(panasonic_aftable)/sizeof(panasonic_aftable[0]);i++) {
+	for (i=0;i<ARRAYSIZE(panasonic_aftable);i++) {
 		if (!strcmp(panasonic_aftable[i].str, xval)) {
 			val = panasonic_aftable[i].val;
 			found = 1;
@@ -9531,7 +9533,7 @@ _get_Panasonic_AFMode(CONFIG_GET_ARGS) {
 	gp_widget_set_name (*widget, menu->name);
 
 	for (i = 0; i < listCount; i++) {
-		for (j=0;j<sizeof(panasonic_aftable)/sizeof(panasonic_aftable[0]);j++) {
+		for (j=0;j<ARRAYSIZE(panasonic_aftable);j++) {
 		sprintf(buf,"%d", list[i]);
 		if ((list[i] == currentVal) && (j == currentVal)) {
 			gp_widget_set_value (*widget, panasonic_aftable[j].str);
@@ -9540,7 +9542,7 @@ _get_Panasonic_AFMode(CONFIG_GET_ARGS) {
 		}
 		}
 	}
-	for (j=0;j<sizeof(panasonic_aftable)/sizeof(panasonic_aftable[0]);j++) {
+	for (j=0;j<ARRAYSIZE(panasonic_aftable);j++) {
 		gp_widget_add_choice (*widget, panasonic_aftable[j].str);
 	}
 	free(list);
@@ -9572,7 +9574,7 @@ _put_Panasonic_MFAdjust(CONFIG_PUT_ARGS)
 	uint32_t i;
 
 	CR (gp_widget_get_value(widget, &xval));
-	for (i=0;i<sizeof(panasonic_mftable)/sizeof(panasonic_mftable[0]);i++) {
+	for (i=0;i<ARRAYSIZE(panasonic_mftable);i++) {
 		if(!strcmp(panasonic_mftable[i].str, xval)) {
 		val = panasonic_mftable[i].val;
 		break;
@@ -9588,7 +9590,7 @@ _get_Panasonic_MFAdjust(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RADIO, _(menu->label), widget);
 	gp_widget_set_name (*widget,menu->name);
 
-	for (i=0;i<sizeof(panasonic_mftable)/sizeof(panasonic_mftable[0]);i++) {
+	for (i=0;i<ARRAYSIZE(panasonic_mftable);i++) {
 		gp_widget_add_choice (*widget, panasonic_mftable[i].str);
 	}
 	gp_widget_set_value (*widget, _("None"));
@@ -9625,12 +9627,12 @@ _get_Panasonic_ExpMode(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RADIO, _(menu->label), widget);
 	gp_widget_set_name (*widget, menu->name);
 
-	for (j=0;j<sizeof(panasonic_rmodetable)/sizeof(panasonic_rmodetable[0]);j++) {
+	for (j=0;j<ARRAYSIZE(panasonic_rmodetable);j++) {
 		gp_widget_add_choice (*widget, panasonic_rmodetable[j].str);
 	}
 
 	for (i = 0; i < listCount; i++) {
-		for (j=0;j<sizeof(panasonic_rmodetable)/sizeof(panasonic_rmodetable[0]);j++) {
+		for (j=0;j<ARRAYSIZE(panasonic_rmodetable);j++) {
 			sprintf(buf,"%d", list[i]);
 			if ((list[i] == currentVal) && (j == currentVal)) {
 				gp_widget_set_value (*widget, panasonic_rmodetable[j].str);
@@ -9656,7 +9658,7 @@ _put_Panasonic_ExpMode(CONFIG_PUT_ARGS)
 	uint32_t i;
 
 	CR (gp_widget_get_value(widget, &xval));
-	for (i=0;i<sizeof(panasonic_rmodetable)/sizeof(panasonic_rmodetable[0]);i++) {
+	for (i=0;i<ARRAYSIZE(panasonic_rmodetable);i++) {
 		if(!strcmp(panasonic_rmodetable[i].str, xval)) {
 			val = panasonic_rmodetable[i].val;
 			break;
@@ -9695,7 +9697,7 @@ _get_Panasonic_Recording(CONFIG_GET_ARGS) {
 	gp_widget_new (GP_WIDGET_RADIO, _(menu->label), widget);
 	gp_widget_set_name (*widget, menu->name);
 
-	for(i = 0; i < sizeof(panasonic_recordtable) / sizeof(panasonic_recordtable[0]); i++) {
+	for(i = 0; i < ARRAYSIZE(panasonic_recordtable); i++) {
 		if (currentVal == panasonic_recordtable[i].val) {
 			strcpy(buf, panasonic_recordtable[i].str);
 		}
@@ -9741,7 +9743,7 @@ _put_Panasonic_Whitebalance(CONFIG_PUT_ARGS)
 
 	if (sscanf(xval,_("Unknown 0x%04x"), &ival))
 		val = ival;
-	for (j=0;j<sizeof(panasonic_wbtable)/sizeof(panasonic_wbtable[0]);j++) {
+	for (j=0;j<ARRAYSIZE(panasonic_wbtable);j++) {
 		if (!strcmp(xval,_(panasonic_wbtable[j].str))) {
 			val = panasonic_wbtable[j].val;
 			break;
@@ -9772,7 +9774,7 @@ _get_Panasonic_Whitebalance(CONFIG_GET_ARGS) {
 
 	for (i = 0; i < listCount; i++) {
 		sprintf(buf,_("Unknown 0x%04x"), list[i]);
-		for (j=0;j<sizeof(panasonic_wbtable)/sizeof(panasonic_wbtable[0]);j++) {
+		for (j=0;j<ARRAYSIZE(panasonic_wbtable);j++) {
 			if (panasonic_wbtable[j].val == list[i]) {
 				strcpy(buf,_(panasonic_wbtable[j].str));
 				break;
@@ -10053,13 +10055,13 @@ _put_Canon_EOS_UILock(CONFIG_PUT_ARGS)
 	CR (gp_widget_get_value(widget, &val));
 
 	if (val) {
-		if (!params->uilocked)
+		if (!params->eos_uilocked)
 			C_PTP_REP (ptp_canon_eos_setuilock (params));
-		params->uilocked = 1;
+		params->eos_uilocked = 1;
 	} else {
-		if (params->uilocked)
+		if (params->eos_uilocked)
 			C_PTP_REP (ptp_canon_eos_resetuilock (params));
-		params->uilocked = 0;
+		params->eos_uilocked = 0;
 	}
 	return GP_OK;
 }
@@ -10161,7 +10163,7 @@ _get_CaptureTarget(CONFIG_GET_ARGS) {
 	if (GP_OK != gp_setting_get("ptp2","capturetarget", buf))
 		strcpy(buf,"sdram");
 
-	for (i=0;i<sizeof (capturetargets)/sizeof (capturetargets[i]);i++) {
+	for (i=0;i<ARRAYSIZE(capturetargets);i++) {
 		gp_widget_add_choice (*widget, _(capturetargets[i].label));
 		if (!strcmp (buf,capturetargets[i].name))
 			gp_widget_set_value (*widget, _(capturetargets[i].label));
@@ -10178,7 +10180,7 @@ _put_CaptureTarget(CONFIG_PUT_ARGS) {
 	char		buf[1024];
 
 	CR (gp_widget_get_value(widget, &val));
-	for (i=0;i<sizeof(capturetargets)/sizeof(capturetargets[i]);i++) {
+	for (i=0;i<ARRAYSIZE(capturetargets);i++) {
 		if (!strcmp( val, _(capturetargets[i].label))) {
 			gp_setting_set("ptp2","capturetarget",capturetargets[i].name);
 			break;
@@ -10272,7 +10274,7 @@ _get_CHDK(CONFIG_GET_ARGS) {
 	gp_widget_set_name (*widget, menu->name);
 	if (GP_OK != gp_setting_get("ptp2","chdk", buf))
 		strcpy(buf,"off");
-	for (i=0;i<sizeof (chdkonoff)/sizeof (chdkonoff[i]);i++) {
+	for (i=0;i<ARRAYSIZE(chdkonoff);i++) {
 		gp_widget_add_choice (*widget, _(chdkonoff[i].label));
 		if (!strcmp (buf,chdkonoff[i].name))
 			gp_widget_set_value (*widget, _(chdkonoff[i].label));
@@ -10286,7 +10288,7 @@ _put_CHDK(CONFIG_PUT_ARGS) {
 	char *val;
 
 	CR (gp_widget_get_value(widget, &val));
-	for (i=0;i<sizeof(chdkonoff)/sizeof(chdkonoff[i]);i++) {
+	for (i=0;i<ARRAYSIZE(chdkonoff);i++) {
 		if (!strcmp( val, _(chdkonoff[i].label))) {
 			gp_setting_set("ptp2","chdk",chdkonoff[i].name);
 			break;
@@ -10332,7 +10334,7 @@ _get_Autofocus(CONFIG_GET_ARGS) {
 	gp_widget_set_name (*widget, menu->name);
 	if (GP_OK != gp_setting_get("ptp2","autofocus", buf))
 		strcpy(buf,"on");
-	for (i=0;i<sizeof (afonoff)/sizeof (afonoff[i]);i++) {
+	for (i=0;i<ARRAYSIZE(afonoff);i++) {
 		gp_widget_add_choice (*widget, _(afonoff[i].label));
 		if (!strcmp (buf,afonoff[i].name))
 			gp_widget_set_value (*widget, _(afonoff[i].label));
@@ -10346,7 +10348,7 @@ _put_Autofocus(CONFIG_PUT_ARGS) {
 	char *val;
 
 	CR (gp_widget_get_value(widget, &val));
-	for (i=0;i<sizeof(afonoff)/sizeof(afonoff[i]);i++) {
+	for (i=0;i<ARRAYSIZE(afonoff);i++) {
 		if (!strcmp( val, _(afonoff[i].label))) {
 			gp_setting_set("ptp2","autofocus",afonoff[i].name);
 			break;
@@ -11589,7 +11591,7 @@ _get_config (Camera *camera, const char *confname, CameraWidget **outwidget, Cam
 		*outwidget = window;
 	}
 
-	for (menuno = 0; menuno < sizeof(menus)/sizeof(menus[0]) ; menuno++ ) {
+	for (menuno = 0; menuno < ARRAYSIZE(menus) ; menuno++ ) {
 		if (!menus[menuno].submenus) { /* Custom menu */
 			if (mode == MODE_GET) {
 				struct menu *cur = menus+menuno;
@@ -11785,7 +11787,7 @@ _get_config (Camera *camera, const char *confname, CameraWidget **outwidget, Cam
 		}
 	}
 
-	if (!params->deviceinfo.DevicePropertiesSupported_len) {
+	if (!params->deviceinfo.DeviceProps_len) {
 		free (setprops);
 		return GP_OK;
 	}
@@ -11797,8 +11799,8 @@ _get_config (Camera *camera, const char *confname, CameraWidget **outwidget, Cam
 		gp_widget_append (window, section);
 	}
 
-	for (i=0;i<params->deviceinfo.DevicePropertiesSupported_len;i++) {
-		uint16_t		propid = params->deviceinfo.DevicePropertiesSupported[i];
+	for (i=0;i<params->deviceinfo.DeviceProps_len;i++) {
+		uint16_t		propid = params->deviceinfo.DeviceProps[i];
 		char			buf[21], *label;
 		PTPDevicePropDesc	dpd;
 		CameraWidgetType	type;
@@ -11842,7 +11844,7 @@ _get_config (Camera *camera, const char *confname, CameraWidget **outwidget, Cam
 			/* simple ranges might just be enumerations */
 #define X(dtc,val) 							\
 			case dtc: 					\
-				if (	((dpd.FORM.Range.MaximumValue.val - dpd.FORM.Range.MinimumValue.val) < 128) &&	\
+				if (	((dpd.FORM.Range.MaxValue.val - dpd.FORM.Range.MinValue.val) < 128) &&	\
 					(dpd.FORM.Range.StepSize.val == 1)) {						\
 					type = GP_WIDGET_MENU;								\
 				} \
@@ -11875,10 +11877,10 @@ _get_config (Camera *camera, const char *confname, CameraWidget **outwidget, Cam
 #define X(dtc,val,vartype,format) 										\
 			case dtc: 								\
 				if (type == GP_WIDGET_RANGE) {					\
-					gp_widget_set_range ( widget, (float) dpd.FORM.Range.MinimumValue.val, (float) dpd.FORM.Range.MaximumValue.val, (float) dpd.FORM.Range.StepSize.val);\
+					gp_widget_set_range ( widget, (float) dpd.FORM.Range.MinValue.val, (float) dpd.FORM.Range.MaxValue.val, (float) dpd.FORM.Range.StepSize.val);\
 				} else {							\
 					vartype k;							\
-					for (k=dpd.FORM.Range.MinimumValue.val;k<=dpd.FORM.Range.MaximumValue.val;k+=dpd.FORM.Range.StepSize.val) { \
+					for (k=dpd.FORM.Range.MinValue.val;k<=dpd.FORM.Range.MaxValue.val;k+=dpd.FORM.Range.StepSize.val) { \
 						sprintf (buf, #format, k); 			\
 						gp_widget_add_choice (widget, buf);		\
 						if (dpd.FORM.Range.StepSize.val == 0) break;	\
@@ -11951,7 +11953,9 @@ _get_config (Camera *camera, const char *confname, CameraWidget **outwidget, Cam
 		X(PTP_DTC_UINT64,u64,"%ld")
 #undef X
 		case PTP_DTC_STR:
-			gp_widget_set_value (widget, dpd.CurrentValue.str);
+			/* only set string if we have a string based widget */
+			if ((type == GP_WIDGET_TEXT) || (type == GP_WIDGET_MENU) || (type == GP_WIDGET_RADIO))
+				gp_widget_set_value (widget, dpd.CurrentValue.str);
 			break;
 		default:
 			break;
@@ -11998,14 +12002,14 @@ camera_get_single_config (Camera *camera, const char *confname, CameraWidget **w
 static int
 _set_config (Camera *camera, const char *confname, CameraWidget *window, GPContext *context)
 {
-	CameraWidget		*section, *widget = window, *subwindow;
-	uint16_t		ret_ptp;
-	unsigned int		menuno, submenuno;
-	int			ret;
-	PTPParams		*params = &camera->pl->params;
-	PTPPropertyValue	propval;
-	unsigned int		i;
-	CameraAbilities		ab;
+	CameraWidget	*section, *widget = window, *subwindow;
+	uint16_t	ret_ptp;
+	unsigned int	menuno, submenuno;
+	int		ret;
+	PTPParams	*params = &camera->pl->params;
+	PTPPropValue	propval;
+	unsigned int	i;
+	CameraAbilities	ab;
 	enum {
 		MODE_SET, MODE_SINGLE_SET
 	} mode = MODE_SET;
@@ -12029,7 +12033,7 @@ _set_config (Camera *camera, const char *confname, CameraWidget *window, GPConte
 
 	if (mode == MODE_SET)
 		CR (gp_widget_get_child_by_label (window, _("Camera and Driver Configuration"), &subwindow));
-	for (menuno = 0; menuno < sizeof(menus)/sizeof(menus[0]) ; menuno++ ) {
+	for (menuno = 0; menuno < ARRAYSIZE(menus) ; menuno++ ) {
 		if (mode == MODE_SET) {
 			ret = gp_widget_get_child_by_label (subwindow, _(menus[menuno].label), &section);
 			if (ret != GP_OK)
@@ -12111,7 +12115,7 @@ _set_config (Camera *camera, const char *confname, CameraWidget *window, GPConte
 								ret = translate_ptp_result (ret_ptp);
 							}
 						}
-						ptp_free_devicepropvalue (cursub->type, &propval);
+						ptp_free_propvalue (cursub->type, &propval);
 					}
 					ptp_free_devicepropdesc(&dpd);
 					if (ret != GP_OK) continue; /* see if we have another match */
@@ -12142,7 +12146,7 @@ _set_config (Camera *camera, const char *confname, CameraWidget *window, GPConte
 								ret = translate_ptp_result (ret_ptp);
 							}
 						}
-						ptp_free_devicepropvalue(cursub->type, &propval);
+						ptp_free_propvalue(cursub->type, &propval);
 					} else
 						gp_context_error (context, _("Parsing the value of widget '%s' / 0x%04x failed with %d."), _(cursub->label), cursub->propid, ret);
 					ptp_free_devicepropdesc(&dpd);
@@ -12178,14 +12182,14 @@ _set_config (Camera *camera, const char *confname, CameraWidget *window, GPConte
 				return ret;
 		}
 	}
-	if (!params->deviceinfo.DevicePropertiesSupported_len)
+	if (!params->deviceinfo.DeviceProps_len)
 		return GP_OK;
 
 	if (mode == MODE_SET)
 		CR (gp_widget_get_child_by_label (subwindow, _("Other PTP Device Properties"), &section));
 	/* Generic property setter */
-	for (i=0;i<params->deviceinfo.DevicePropertiesSupported_len;i++) {
-		uint16_t		propid = params->deviceinfo.DevicePropertiesSupported[i];
+	for (i=0;i<params->deviceinfo.DeviceProps_len;i++) {
+		uint16_t		propid = params->deviceinfo.DeviceProps[i];
 		CameraWidgetType	type;
 		char			buf[20], *label, *xval;
 		PTPDevicePropDesc	dpd;
@@ -12262,7 +12266,7 @@ _set_config (Camera *camera, const char *confname, CameraWidget *window, GPConte
 					  _(label), propid, ret, _(ptp_strerror(ret, params->deviceinfo.VendorExtensionID)));
 			ret = GP_ERROR;
 		}
-		ptp_free_devicepropvalue (dpd.DataType, &propval);
+		ptp_free_propvalue (dpd.DataType, &propval);
 		ptp_free_devicepropdesc (&dpd);
 		if (mode == MODE_SINGLE_SET)
 			return GP_OK;
@@ -12294,7 +12298,7 @@ camera_lookup_by_property(Camera *camera, PTPDevicePropDesc *dpd, char **name, c
 	int 		ret;
 	PTPParams	*params = &camera->pl->params;
 	CameraAbilities	ab;
-	uint32_t	propid = dpd->DevicePropertyCode;
+	uint32_t	propid = dpd->DevicePropCode;
 	CameraWidget	*widget;
 
 	*name = NULL;
@@ -12305,7 +12309,7 @@ camera_lookup_by_property(Camera *camera, PTPDevicePropDesc *dpd, char **name, c
 	memset (&ab, 0, sizeof(ab));
 	gp_camera_get_abilities (camera, &ab);
 
-	for (menuno = 0; menuno < sizeof(menus)/sizeof(menus[0]) ; menuno++ ) {
+	for (menuno = 0; menuno < ARRAYSIZE(menus) ; menuno++ ) {
 		if (!menus[menuno].submenus) { /* Custom menu ... not exposed to by-property method */
 			continue;
 		}

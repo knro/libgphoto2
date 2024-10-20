@@ -115,8 +115,6 @@ inline static int log_on_ptp_error_helper( int _r, const char* _func, const char
 	}\
 } while (0)
 
-#define ARRAYSIZE(ARRAY) (sizeof(ARRAY) / sizeof(ARRAY[0]))
-
 static inline int
 is_canon_eos_m(PTPParams *params) {
 	if (params->deviceinfo.VendorExtensionID != PTP_VENDOR_CANON) return 0;
@@ -143,8 +141,8 @@ have_eos_prop(PTPParams *params, uint16_t vendor, uint16_t prop) {
 	/* The special Canon EOS property set gets special treatment. */
 	if ((params->deviceinfo.VendorExtensionID != PTP_VENDOR_CANON) || (vendor != PTP_VENDOR_CANON))
 		return 0;
-	for (i=0;i<params->nrofcanon_props;i++)
-		if (params->canon_props[i].dpd.DevicePropertyCode == prop)
+	for (i=0;i<params->canon_props.len;i++)
+		if (params->canon_props.val[i].DevicePropCode == prop)
 			return 1;
 	return 0;
 }

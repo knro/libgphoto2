@@ -30,7 +30,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: 'Determine number of cores to build on (Linux)'
         if: runner.os == 'Linux'
@@ -58,7 +58,7 @@ jobs:
 
       - name: 'Install build requirements (Linux)'
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y autopoint gettext libusb-1.0-0-dev libcurl4-openssl-dev libgd-dev
+        run: sudo apt-get install -y autopoint gettext libusb-1.0-0-dev libcurl4-openssl-dev libgd-dev libltdl-dev
 
       - name: 'Install build requirements (macOS)'
         if: runner.os == 'macOS'
