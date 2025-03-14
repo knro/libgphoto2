@@ -2732,6 +2732,8 @@ static struct {
 
 	/* Arda Kaan <ardakaan@gmail.com> */
 	{"Ricoh:WG-M2 (PTP mode)",        	0x25fb, 0x210b, 0},
+	/* https://github.com/gphoto/libgphoto2/issues/1099 */
+	{"Ricoh:GR III (PTP mode)",        	0x25fb, 0x210f, 0},
 	/* https://github.com/libmtp/libmtp/issues/148 */
 	{"Ricoh:GR IIIx (PTP mode)",        	0x25fb, 0x25fb, 0},
 
@@ -8105,14 +8107,10 @@ folder_list_func (CameraFilesystem *fs, const char *folder, CameraList *list,
 	if (!strcmp(folder, "/")) {
 		/* use the cached storageids. they should be valid after camera_init */
 		if (ptp_operation_issupported(params,PTP_OC_GetStorageIDs)) {
-			if (!params->storageids.len) {
-				CR (gp_list_append (list, STORAGE_FOLDER_PREFIX"00010001", NULL));
-			} else {
-				char fname[PTP_MAXSTRLEN];
-				for_each (uint32_t*, psid, params->storageids) {
-					snprintf(fname, sizeof(fname), STORAGE_FOLDER_PREFIX"%08x", *psid);
-					CR (gp_list_append (list, fname, NULL));
-				}
+			char fname[PTP_MAXSTRLEN];
+			for_each (uint32_t*, psid, params->storageids) {
+				snprintf(fname, sizeof(fname), STORAGE_FOLDER_PREFIX"%08x", *psid);
+				CR (gp_list_append (list, fname, NULL));
 			}
 		} else {
 			gp_list_append (list, STORAGE_FOLDER_PREFIX"deadbeef", NULL);
