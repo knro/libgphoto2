@@ -42,19 +42,63 @@ libgphoto2_private_headers = files(
 endian_dic = configuration_data()
 
 # Look for NetBSD-style extended byte swapping macros
-if cc.has_function('le32toh', prefix: '#include <machine/endian.h>')
+if cc.compiles(
+  '''
+  #include <machine/endian.h>
+  int main() { le32toh(0); return 0; }
+  '''
+)
   endian_dic.set10('HAS_LE32TOH', true)
-elif cc.has_function('ntohl', prefix: '#include <arpa/inet.h>')
+elif cc.compiles(
+  '''
+  #include <arpa/inet.h>
+  int main() { ntohl(0); return 0; }
+  '''
+)
   endian_dic.set10('HAS_NTOHL_ARPA_INET', true)
-elif cc.has_function('ntohl', prefix: '#include <netinet/in.h>')
+elif cc.compiles(
+  '''
+  #include <netinet/in.h>
+  int main() { ntohl(0); return 0; }
+  '''
+)
   endian_dic.set10('HAS_NTOHL_NETINET_IN', true)
 endif
 
-if cc.has_function('swap32', prefix: '#include <machine/endian.h>')
+if cc.compiles(
+  '''
+  #include <byteswap.h>
+  int main() { bswap_32(0); return 0; }
+  '''
+)
+  endian_dic.set10('HAS_BSWAP_32', true)
+elif cc.compiles(
+  '''
+  #include <machine/endian.h>
+  int main() { swap32(0); return 0; }
+  '''
+)
   endian_dic.set10('HAS_SWAP32', true)
-elif cc.has_function('__byte_swap_long', prefix: '#include <sys/types.h>')
+elif cc.compiles(
+  '''
+  #include <machine/endian.h>
+  int main() { bswap32(0); return 0; }
+  '''
+)
+  endian_dic.set10('HAS_BSWAP32', true)
+elif cc.compiles(
+  '''
+  #include <sys/types.h>
+  int main() { __byte_swap_long(0); return 0; }
+  '''
+)
   endian_dic.set10('HAS_BYTE_SWAP_LONG', true)
-elif cc.has_function('NXSwapLong', prefix: '#include <machine/byte_order.h>')
+elif cc.compiles(
+  '''
+  #include <machine/byte_order.h>
+  int main() { NXSwapLong(0); return 0; }
+  '''
+)
   endian_dic.set10('HAS_NXSWAPLONG', true)
 endif
 
@@ -70,6 +114,22 @@ gphoto2_endian = configure_file(
 )
 
 libgphoto2_private_headers += gphoto2_endian
+
+libgphoto2_link_args = []
+libgphoto2_link_deps = []
+
+if has_version_script
+  libgphoto2_version_script = custom_target(
+    'libgphoto2.ver',
+    output: 'libgphoto2.ver',
+    input: files('sym_to_ver.py', 'libgphoto2.sym'),
+    command: [python, '@INPUT0@', '@INPUT1@', '@OUTPUT@'],
+  )
+  libgphoto2_link_args += ['-Wl,--version-script=@0@'.format(
+    libgphoto2_version_script.full_path()
+  )]
+  libgphoto2_link_deps += [libgphoto2_version_script]
+endif
 
 libgphoto2_lib = library(
   'gphoto2',
@@ -90,7 +150,9 @@ libgphoto2_lib = library(
   ],
   c_args: [
     '-D_GPHOTO2_INTERNAL_CODE',
-  ]
+  ],
+  link_args: libgphoto2_link_args,
+  link_depends: libgphoto2_link_deps,
 )
 
 install_headers(
@@ -110,7 +172,7 @@ pkg.generate(
   filebase: 'libgphoto2',
   description: 'Device-independent access to serial, USB, and other ports',
   url: 'http://gphoto.org/proj/libgphoto2/',
-  subdirs: 'gphoto2',
+  subdirs: ['.', 'gphoto2'],
   version: meson.project_version(),
   requires: [ libgphoto2_port_lib ],
   variables: [

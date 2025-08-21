@@ -2093,6 +2093,7 @@ ptp_getstorageids (PTPParams* params, PTPStorageIDs* storageids)
 		if ((*psid & 0xffff) != 0) // filter out invalid storageIDs once instead of everywhere
 			array_push_back(storageids, *psid);
 
+	free_array (&all_ids);
 	return PTP_RC_OK;
 }
 
@@ -7382,8 +7383,9 @@ ptp_get_property_description(PTPParams* params, uint32_t dpc)
 		const char *txt;
 	} ptp_device_properties_SONY[] = {
 		{PTP_DPC_WhiteBalance, N_("White Balance")},		/* 0x5005 */
-		{PTP_DPC_SONY_DPCCompensation, ("DOC Compensation")},	/* 0xD200 */
-		{PTP_DPC_SONY_DRangeOptimize, ("DRangeOptimize")},	/* 0xD201 */
+		{PTP_DPC_SONY_ImageStabilization, N_("Image Stabilization")},/* 0xD0D9 */
+		{PTP_DPC_SONY_DPCCompensation, N_("DOC Compensation")},	/* 0xD200 */
+		{PTP_DPC_SONY_DRangeOptimize, N_("DRangeOptimize")},	/* 0xD201 */
 		{PTP_DPC_SONY_ImageSize, N_("Image size")},		/* 0xD203 */
 		{PTP_DPC_SONY_ShutterSpeed, N_("Shutter speed")},	/* 0xD20D */
 		{PTP_DPC_SONY_ColorTemp, N_("Color temperature")},	/* 0xD20F */

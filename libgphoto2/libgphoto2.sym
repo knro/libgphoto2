@@ -105,6 +105,7 @@ gp_filesystem_get_file
 gp_filesystem_read_file
 gp_filesystem_get_folder
 gp_filesystem_get_info
+gp_filesystem_get_storageinfo
 gp_filesystem_list_files
 gp_filesystem_list_folders
 gp_filesystem_make_dir
@@ -140,6 +141,8 @@ gp_list_sort
 gp_list_unref
 gp_message_codeset
 gp_result_as_string
+gp_setting_set_get_func
+gp_setting_set_set_func
 gp_setting_get
 gp_setting_set
 gp_widget_add_choice

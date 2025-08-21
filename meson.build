@@ -1,5 +1,5 @@
 project('libgphoto2', 'c',
-  version : '2.5.31.1',
+  version : '2.5.32.1',
   meson_version : '>= 1.4.0',
   default_options : [
     'buildtype=debugoptimized',
@@ -11,6 +11,8 @@ project('libgphoto2', 'c',
 
 i18n = import('i18n')
 pkg = import('pkgconfig')
+py = import('python')
+python = py.find_installation()
 
 libxml_req         = '>= 2.0'
 libcurl_req        = '>= 7.1'
@@ -31,9 +33,9 @@ libexif_req        = '>= 0.6.13'
 #  change does not break upward compatibility (ie it is an addition),
 #  increment AGE, Otherwise AGE is reset to 0. If CURRENT has changed,
 #  REVISION is set to 0, otherwise REVISION is incremented.
-libgphoto2_age         = 3
+libgphoto2_age         = 4
 libgphoto2_revision    = 0
-libgphoto2_current     = 9
+libgphoto2_current     = 10
 libgphoto2_current_min = libgphoto2_current - libgphoto2_age
 
 libgphoto2_port_name    = 'libgphoto2_port'
@@ -152,6 +154,10 @@ if intl_dep.found()
   add_project_arguments('-DENABLE_NLS=1', language: 'c')
 endif
 
+has_version_script = cc.has_link_argument('-Wl,--version-script=@0@'.format(
+  meson.current_source_dir() / 'libgphoto2_port' / 'libgphoto2_port' / 'libgphoto2_port.ver'
+))
+
 libgphoto2_root_inc = include_directories('.')
 
 iolibs_dir_suffix = libgphoto2_port_name / libgphoto2_port_version
@@ -159,6 +165,7 @@ iolibs_dir = get_option('prefix') / get_option('libdir') / iolibs_dir_suffix
 
 camlibs_dir_suffix = meson.project_name() / meson.project_version()
 camlibs_dir = get_option('prefix') / get_option('libdir') / camlibs_dir_suffix
+camlibs_datadir = get_option('prefix') / get_option('datadir') / camlibs_dir_suffix
 
 config_data = configuration_data()
 config_data.set_quoted('PACKAGE_VERSION', meson.project_version())

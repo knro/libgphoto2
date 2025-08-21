@@ -6290,6 +6290,7 @@ static struct deviceproptableu16 focusmodes[] = {
 	{ N_("Single-Servo AF"),0x8001, PTP_VENDOR_FUJI },
 	{ N_("Continuous-Servo AF"),0x8002, PTP_VENDOR_FUJI },
 
+	{ N_("Preset MF"),	0x8004, PTP_VENDOR_GP_OLYMPUS_OMD },
 	{ N_("C-AF"),		0x8002, PTP_VENDOR_GP_OLYMPUS_OMD },
 	{ N_("S-AF+MF"),	0x8001, PTP_VENDOR_GP_OLYMPUS_OMD },
 
@@ -7288,10 +7289,16 @@ static struct deviceproptableu8 sony_sensorcrop[] = {
 GENERIC8TABLE(Sony_SensorCrop,sony_sensorcrop)
 
 static struct deviceproptableu8 sony_liveviewsettingeffect[] = {
-		{ N_("On"),  0x01, 0 },
-		{ N_("Off"), 0x02, 0 },
+	{ N_("On"),	0x01, 0 },
+	{ N_("Off"),	0x02, 0 },
 };
 GENERIC8TABLE(Sony_LiveViewSettingEffect,sony_liveviewsettingeffect)
+
+static struct deviceproptableu8 sony_image_stabilization[] = {
+	{ N_("Off"),	0x01, 0 },
+	{ N_("On"),	0x02, 0 },
+};
+GENERIC8TABLE(Sony_ImageStabilization,sony_image_stabilization)
 
 /* Sony specific, we need to wait for it settle (around 1 second), otherwise we get trouble later on */
 static int
@@ -7585,6 +7592,25 @@ static struct deviceproptableu32 canon_eos_movieservoaf[] = {
 	{ N_("On"),	0x1, 0 },
 };
 GENERIC32TABLE(Canon_EOS_MovieServoAF,canon_eos_movieservoaf)
+
+static struct deviceproptableu16 olympus_whitebalanceadjust[] = {
+	{"-7",	65529, 0},
+	{"-6",	65530, 0},
+	{"-5",	65531, 0},
+	{"-4",	65532, 0},
+	{"-3",	65533, 0},
+	{"-2",	65534, 0},
+	{"-1",	65535, 0},
+	{"0",	0, 0},
+	{"1",	1, 0},
+	{"2",	2, 0},
+	{"3",	3, 0},
+	{"4",	4, 0},
+	{"5",	5, 0},
+	{"6",	6, 0},
+	{"7",	7, 0},
+};
+GENERIC16TABLE(Olympus_WhiteBalanceAdjust, olympus_whitebalanceadjust)
 
 static int
 _get_BatteryLevel(CONFIG_GET_ARGS) {
@@ -11406,10 +11432,13 @@ static struct submenu image_settings_menu[] = {
 	{ N_("Color Temperature"),      "colortemperature",     PTP_DPC_CANON_EOS_ColorTemperature,     PTP_VENDOR_CANON,   PTP_DTC_UINT32, _get_INT,                       _put_INT },
 	{ N_("Color Temperature"),      "colortemperature",     PTP_DPC_FUJI_ColorTemperature,          PTP_VENDOR_FUJI,    PTP_DTC_UINT16, _get_INT,                       _put_INT },
 	{ N_("Color Temperature"),      "colortemperature",     PTP_DPC_SONY_ColorTemp,                 PTP_VENDOR_SONY,    PTP_DTC_UINT16, _get_INT,                       _put_INT },
+	{ N_("Color Temperature"),      "colortemperature",     PTP_DPC_OLYMPUS_ColorTemperature,       PTP_VENDOR_GP_OLYMPUS_OMD,    PTP_DTC_UINT16, _get_INT,             _put_INT },
 	{ N_("WhiteBalance"),           "whitebalance",         PTP_DPC_WhiteBalance,                   0,                  PTP_DTC_UINT16, _get_WhiteBalance,              _put_WhiteBalance },
 	{ N_("WhiteBalance"),           "whitebalance",         PTP_DPC_NIKON_1_WhiteBalance,           PTP_VENDOR_NIKON,   PTP_DTC_UINT8,  _get_Nikon_1_WhiteBalance,      _put_Nikon_1_WhiteBalance },
 	{ N_("WhiteBalance Adjust A"),  "whitebalanceadjusta",  PTP_DPC_CANON_EOS_WhiteBalanceAdjustA,  PTP_VENDOR_CANON,   PTP_DTC_INT32,  _get_Canon_EOS_WBAdjust,        _put_Canon_EOS_WBAdjust },
 	{ N_("WhiteBalance Adjust B"),  "whitebalanceadjustb",  PTP_DPC_CANON_EOS_WhiteBalanceAdjustB,  PTP_VENDOR_CANON,   PTP_DTC_INT32,  _get_Canon_EOS_WBAdjust,        _put_Canon_EOS_WBAdjust },
+	{ N_("WhiteBalance Adjust A"),  "whitebalanceadjusta",  PTP_DPC_OLYMPUS_WhiteBalanceAdjustA,    PTP_VENDOR_GP_OLYMPUS_OMD,   PTP_DTC_UINT16,  _get_Olympus_WhiteBalanceAdjust,  _put_Olympus_WhiteBalanceAdjust },
+	{ N_("WhiteBalance Adjust B"),  "whitebalanceadjustb",  PTP_DPC_OLYMPUS_WhiteBalanceAdjustB,    PTP_VENDOR_GP_OLYMPUS_OMD,   PTP_DTC_UINT16,  _get_Olympus_WhiteBalanceAdjust,  _put_Olympus_WhiteBalanceAdjust },
 	{ N_("WhiteBalance X A"),       "whitebalancexa",       PTP_DPC_CANON_EOS_WhiteBalanceXA,       PTP_VENDOR_CANON,   PTP_DTC_UINT32, _get_INT,                       _put_None },
 	{ N_("WhiteBalance X B"),       "whitebalancexb",       PTP_DPC_CANON_EOS_WhiteBalanceXB,       PTP_VENDOR_CANON,   PTP_DTC_UINT32, _get_INT,                       _put_None },
 	{ N_("Photo Effect"),           "photoeffect",          PTP_DPC_CANON_PhotoEffect,              PTP_VENDOR_CANON,   PTP_DTC_UINT16, _get_Canon_PhotoEffect,         _put_Canon_PhotoEffect },
@@ -11660,6 +11689,7 @@ static struct submenu capture_settings_menu[] = {
 	{ N_("HDMI Output Data Depth"),         "hdmioutputdatadepth",      PTP_DPC_NIKON_HDMIOutputDataDepth,      PTP_VENDOR_NIKON,   PTP_DTC_UINT8,  _get_Nikon_HDMIDataDepth,           _put_Nikon_HDMIDataDepth },
 	{ N_("Face Detection"),                 "facedetection",            PTP_DPC_NIKON_FaceDetection,            PTP_VENDOR_NIKON,   PTP_DTC_UINT8,  _get_Nikon_FaceDetection,           _put_Nikon_FaceDetection },
 	{ N_("Movie Servo AF"),                 "movieservoaf",             PTP_DPC_CANON_EOS_MovieServoAF,         PTP_VENDOR_CANON,   PTP_DTC_UINT32, _get_Canon_EOS_MovieServoAF,        _put_Canon_EOS_MovieServoAF },
+	{ N_("Image Stabilization"),            "imagestabilization",       PTP_DPC_SONY_ImageStabilization,        PTP_VENDOR_SONY,    PTP_DTC_UINT8,  _get_Sony_ImageStabilization,       _put_Sony_ImageStabilization },
 
 	{ 0,0,0,0,0,0,0 },
 };
@@ -11983,7 +12013,18 @@ _get_config (Camera *camera, const char *confname, CameraWidget **outwidget, Cam
 
 					if ((mode == MODE_SINGLE_GET) && strcmp (cursub->name, confname))
 						continue;
-					if (mode == MODE_LIST) {
+
+					if (mode == MODE_GET) {
+						/* prevent getting the same property twice, some sony cameras have two */
+						/* property settings with the same name, and only the first can be set. */
+						/* for example Sony DSC-RX0M2 when connected with mode 2 the following */
+						/* will be displayed twice: iso, exposurecompensation & shutterspeed */
+						CameraWidget* child = NULL;
+						int r = gp_widget_get_child_by_name(section, cursub->name, &child);
+						if (r == GP_OK && child != NULL) {
+							continue;
+						}
+					} else if (mode == MODE_LIST) {
 						gp_list_append (list, cursub->name, NULL);
 						continue;
 					}
@@ -12447,7 +12488,13 @@ _set_config (Camera *camera, const char *confname, CameraWidget *window, GPConte
 						ptp_free_propvalue (cursub->type, &propval);
 					}
 					ptp_free_devicepropdesc(&dpd);
-					if (ret != GP_OK) continue; /* see if we have another match */
+					if (ret != GP_OK) {
+						if (mode == MODE_SET) {
+							/* Clear changed flag so we can try another match */
+							gp_widget_set_changed (widget, FALSE);
+						}
+						continue; /* see if we have another match */
+					}
 				} else {
 					ret = cursub->putfunc (camera, widget, NULL, NULL, NULL);
 				}

@@ -1138,6 +1138,9 @@ static struct {
 	/* t.ludewig@gmail.com */
 	{"Sony:DSC-HX200V (PTP mode)",0x054c, 0x061f, 0},
 
+	/* Mark Watson <watsonmw@gmail.com> */
+	{"Sony:SLT-A99V",             0x054c, 0x0641, 0},
+
 	/* https://sourceforge.net/p/gphoto/feature-requests/424/ */
 	{"Sony:SLT-A57", 	      0x054c, 0x0669, 0},
 
@@ -1370,6 +1373,14 @@ static struct {
 
 	/* via email */
 	{"Sony:A6700 (PC Control)",		0x054c, 0x0e78, PTP_CAP|PTP_CAP_PREVIEW},
+
+	/* Mark Watson <watsonmw@gmail.com> */
+	{"Sony:ILCE-9M3 (Control)",		0x054c, 0x0e80, PTP_CAP|PTP_CAP_PREVIEW},
+
+	/* Mark Watson <watsonmw@gmail.com> */
+	{"Sony:ILX-LR1 (PC Control)",		0x054c, 0x0e90, PTP_CAP|PTP_CAP_PREVIEW},
+
+	{"Sony:ZV-E10M2 (MTP mode)",		0x054c, 0x0ee7, 0},
 
 	/* Nikon Coolpix 2500: M. Meissner, 05 Oct 2003 */
 	{"Nikon:Coolpix 2500 (PTP mode)", 0x04b0, 0x0109, 0},
@@ -2539,6 +2550,8 @@ static struct {
 	{"Canon:EOS R100",			0x04a9, 0x3312, PTP_CAP|PTP_CAP_PREVIEW},
 	/* https://github.com/gphoto/libgphoto2/issues/1028 */
 	{"Canon:EOS 5Rm2",			0x04a9, 0x3314, PTP_CAP|PTP_CAP_PREVIEW},
+	/* https://github.com/gphoto/libgphoto2/issues/1131 */
+	{"Canon:EOS R50 V",			0x04a9, 0x3320, PTP_CAP|PTP_CAP_PREVIEW},
 
 	/* Konica-Minolta PTP cameras */
 	{"Konica-Minolta:DiMAGE A2 (PTP mode)",        0x132b, 0x0001, 0},
@@ -2701,6 +2714,7 @@ static struct {
 	{"Fuji:Fujifilm GFX100 II",		0x04cb, 0x02fe, PTP_CAP|PTP_CAP_PREVIEW},
 	/* https://github.com/gphoto/libgphoto2/issues/964 */
 	{"Fuji:Fujifilm X100VI",		0x04cb, 0x0305, 0},
+	{"Fuji:Fujifilm X-M5",			0x04cb, 0x030c, 0},
 
 	{"Ricoh:Caplio R5 (PTP mode)",          0x05ca, 0x0110, 0},
 	{"Ricoh:Caplio GX (PTP mode)",          0x05ca, 0x0325, 0},
@@ -2801,6 +2815,10 @@ static struct {
 	/* This is a camera ... reported by TAN JIAN QI <JQTAN1@e.ntu.edu.sg */
 	{"Samsung:EK-GC100",			0x04e8,	0x6866, 0},
 
+	
+	/* https://sourceforge.net/p/libmtp/bugs/1950/ */
+	{"TOPDON:TC004 Mini",			0x3474,	0x0020, 0},
+
 	/* 522903503@qq.com */
 	{"Sigma:fp",				0x1003,	0xc432, PTP_CAP|PTP_CAP_PREVIEW},
 	/* https://github.com/gphoto/libgphoto2/issues/882 */
@@ -2808,6 +2826,8 @@ static struct {
 
 	/* Bernhard Wagner <me@bernhardwagner.net> */
 	{"Leica:M9",				0x1a98,	0x0002, PTP_CAP},
+	/* https://github.com/gphoto/libgphoto2/issues/1098 */
+	{"Leica:M11 Monochrom",			0x1a98,	0x2083, PTP_CAP},
 
 	/* https://github.com/gphoto/gphoto2/issues/601 */
 	{"Leica:Q3",				0x1a98,	0x2376, PTP_CAP|PTP_CAP_PREVIEW|PTP_NO_CAPTURE_COMPLETE},
@@ -3342,7 +3362,7 @@ append_folder_from_handle (Camera *camera, uint32_t storage, uint32_t handle, ch
 	if (handle == PTP_HANDLER_ROOT)
 		return GP_OK;
 
-	C_PTP (ptp_object_want (params, handle, PTPOBJECT_PARENTOBJECT_LOADED, &ob)); // refresh
+	C_PTP (ptp_object_want (params, handle, PTPOBJECT_PARENTOBJECT_LOADED|PTPOBJECT_OBJECTINFO_LOADED, &ob)); // refresh
 	CR (append_folder_from_handle (camera, storage, ob->oi.ParentObject, folder));
 	/* re-fetch invalidated ob cache pointer */
 	ptp_find_object_in_cache(params, handle, &ob);
@@ -4925,6 +4945,38 @@ camera_sony_capture (Camera *camera, CameraCaptureType type, CameraFilePath *pat
 		}
 	}
 
+	/* Clean RAM memory. Image may remain in memory when something went wrong during previous capture.camera,
+	e.g. when uploading/deleting image . In this case the image is immidiately available as object in RAM 0x8001 so
+	function will start download during exposition and we get another image than supposed. It may even accumulate so
+	we will get images from history. Camera on-off does not delete RAM. Just USB reconnection helps.
+	*/
+	do {
+		C_PTP (ptp_sony_getalldevicepropdesc (params)); /* avoid caching */
+		C_PTP (ptp_generic_getdevicepropdesc (params, PTP_DPC_SONY_ObjectInMemory, &dpd));
+		GP_LOG_D ("DEBUG== 0xd215 before capture = %d", dpd.CurrentValue.u16);
+
+		if (dpd.CurrentValue.u16 >= 0x8000) {
+
+			uint32_t objecthandle = 0xffffc001;
+			if (dpd.CurrentValue.u16 == 0x8001) {
+				GP_LOG_D ("SONY ObjectInMemory 0x%x seen, cleaning RAM", dpd.CurrentValue.u16);
+				C_PTP (ptp_getobjectinfo (params, objecthandle, &oi));
+				log_objectinfo(params, &oi);
+				ptp_free_objectinfo(&oi);
+				/* PTP_OC_DeleteObject is not supported */
+				unsigned char *ximage = NULL;
+				C_PTP (ptp_getobject(params, objecthandle, &ximage));
+				free (ximage);
+			} else {
+				GP_LOG_D ("SONY ObjectInMemory 0x%x seen, unknown type to clean it", dpd.CurrentValue.u16);
+				/* TODO: might be there also other object (preview, ...) object reported this way ? */
+				break;
+			}
+		} else {
+			break;
+		}
+	} while (TRUE);
+
 	/* half-press */
 	propval.u16 = 2;
 	C_PTP (ptp_sony_setdevicecontrolvalueb (params, PTP_DPC_SONY_ShutterHalfRelease, &propval, PTP_DTC_UINT16));
@@ -5035,11 +5087,16 @@ camera_sony_capture (Camera *camera, CameraCaptureType type, CameraFilePath *pat
 	/* FIXME: handle multiple images (as in BurstMode) */
 	C_PTP (ptp_getobjectinfo (params, newobject, &oi));
 
+	log_objectinfo(params, &oi);
 	sprintf (path->folder,"/");
-	if (oi.ObjectFormat == PTP_OFC_SONY_RAW)
-		sprintf (path->name, "capt%04d.arw", params->capcnt++);
-	else
-		sprintf (path->name, "capt%04d.jpg", params->capcnt++);
+	if (oi.Filename && strlen(oi.Filename) > 4) {
+		sprintf (path->name, "capt_%s", oi.Filename);  // capt prefix is mandatory when deleting file
+	} else {
+		if (oi.ObjectFormat == PTP_OFC_SONY_RAW)
+			sprintf (path->name, "capt%04d.arw", params->capcnt++);
+		else
+			sprintf (path->name, "capt%04d.jpg", params->capcnt++);
+	}
 	ret = add_objectid_and_upload (camera, path, context, newobject, &oi);
 	ptp_free_objectinfo (&oi);
 	return ret;
@@ -5543,6 +5600,7 @@ camera_olympus_omd_capture (Camera *camera, CameraCaptureType type, CameraFilePa
 			switch (event.Code) {
 			case PTP_EC_Olympus_ObjectAdded:
 			case PTP_EC_Olympus_ObjectAdded_New:	/* seen in newer traces, https://github.com/gphoto/gphoto2/issues/310 */
+			case PTP_EC_Olympus_CaptureComplete:
 			case PTP_EC_ObjectAdded:
 				newobject = event.Param1;
 				goto downloadfile;
@@ -6521,6 +6579,14 @@ camera_trigger_capture (Camera *camera, GPContext *context)
 		return translate_ptp_result(ptp_panasonic_capture(params));
 	}
 
+	if (	(params->deviceinfo.VendorExtensionID == PTP_VENDOR_GP_OLYMPUS_OMD) &&
+		ptp_operation_issupported(params, PTP_OC_OLYMPUS_OMD_Capture)
+	) {
+		C_PTP_REP(ptp_generic_no_data(params, PTP_OC_OLYMPUS_OMD_Capture, 1, 0x3));
+		C_PTP_REP(ptp_generic_no_data(params, PTP_OC_OLYMPUS_OMD_Capture, 1, 0x6));
+		return GP_OK;
+	}
+
 	if (!ptp_operation_issupported(params,PTP_OC_InitiateCapture)) {
 		gp_context_error(context, _("Sorry, your camera does not support generic capture"));
 		return GP_ERROR_NOT_SUPPORTED;
@@ -6998,10 +7064,18 @@ downloadnow:
 				}
 				if (oi.ObjectFormat != PTP_OFC_EXIF_JPEG) {
 					GP_LOG_D ("raw? ofc is 0x%04x, name is %s", oi.ObjectFormat,oi.Filename);
-					sprintf (path->name, "capt%04d.arw", params->capcnt++);
+					if (oi.Filename && strlen(oi.Filename) > 4) {
+						sprintf (path->name, "capt_%s", oi.Filename);  // capt prefix is mandatory when deleting file
+					} else {
+						sprintf (path->name, "capt%04d.arw", params->capcnt++);
+					}
 					gp_file_set_mime_type (file, "image/x-sony-arw"); /* FIXME */
 				} else {
-					sprintf (path->name, "capt%04d.jpg", params->capcnt++);
+					if (oi.Filename && strlen(oi.Filename) > 4) {
+						sprintf (path->name, "capt_%s", oi.Filename);  // capt prefix is mandatory when deleting file
+					} else {
+						sprintf (path->name, "capt%04d.jpg", params->capcnt++);
+					}
 					gp_file_set_mime_type (file, GP_MIME_JPEG);
 				}
 				gp_file_set_mtime (file, time(NULL));
@@ -7245,9 +7319,8 @@ sonyout:
 		}  while (waiting_for_timeout (&back_off_wait, event_start, timeout));
 
 downloadomdfile:
-		C_MEM (path = calloc(1, sizeof(CameraFilePath)));
-
 		if (newobject != 0) {
+			C_MEM (path = calloc(1, sizeof(CameraFilePath)));
 			CR (add_object_to_fs_and_path (camera, newobject, path, context));
 
 			*eventtype = GP_EVENT_FILE_ADDED;
@@ -7938,6 +8011,7 @@ static uint32_t
 find_child (PTPParams *params, const char *path, uint32_t storage, uint32_t handle, PTPObject **retob)
 {
 	uint16_t ret;
+	uint32_t found_child;
 
 	const char *slash = strchr (path, '/');
 	size_t filename_len = slash ? (size_t)(slash - path) : strlen(path);
@@ -7959,9 +8033,12 @@ find_child (PTPParams *params, const char *path, uint32_t storage, uint32_t hand
 		if (!strncmp (ob->oi.Filename, path, filename_len)) {
 			if (retob)
 				*retob = ob;
-			return *poid;
+			found_child = *poid;
+			free_array (&handles);
+			return found_child;
 		}
 	}
+	free_array (&handles);
 	/* else not found */
 	return PTP_HANDLER_SPECIAL;
 }
@@ -8068,6 +8145,7 @@ generic_list_func (PTPParams *params, const char *folder, int is_directory, Came
 	}
 
 	GP_LOG_D ("returning list with %d %s entries", gp_list_count(list), is_directory ? "directory" : "file");
+	free_array (&handles);
 
 	return GP_OK;
 }
@@ -9865,6 +9943,26 @@ camera_init (Camera *camera, GPContext *context)
 			}
 		}
 		gp_port_set_timeout (camera->port, timeout);
+	}
+
+
+	/* initial reading of the root directory is needed for some reason for Canons EOS 1500D to not hang */
+
+	/* avoid doing this on the Sonys DSLRs in control mode, they hang. :( */
+	if (params->deviceinfo.VendorExtensionID != PTP_VENDOR_SONY) {
+		PTPObjectHandles handles = {0};
+		ptp_list_folder (params, PTP_HANDLER_SPECIAL, PTP_HANDLER_SPECIAL, &handles);
+	}
+
+	{
+		unsigned int k;
+		PTPObjectHandles handles = {0};
+
+		for (k=0;k<params->storageids.len;k++) {
+			if (!(params->storageids.val[k] & 0xffff)) continue;
+			if (params->storageids.val[k] == 0x80000001) continue;
+			ptp_list_folder (params, params->storageids.val[k], PTP_HANDLER_SPECIAL, &handles);
+		}
 	}
 
 	/* moved down here in case the filesystem needs to first be initialized as the Olympus app does */
